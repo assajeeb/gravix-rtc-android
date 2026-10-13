@@ -1,0 +1,264 @@
+/*
+ * Copyright 2023-2026 LiveKit, Inc.
+ * Modifications Copyright 2026 Gravity Compile
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.gravixcloud.rtc.room.participant
+
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedFactory
+import dagger.assisted.AssistedInject
+import com.gravixcloud.rtc.dagger.InjectionNames
+import com.gravixcloud.rtc.events.ParticipantEvent
+import com.gravixcloud.rtc.events.RoomEvent
+import com.gravixcloud.rtc.room.SignalClient
+import com.gravixcloud.rtc.room.track.KIND_AUDIO
+import com.gravixcloud.rtc.room.track.KIND_VIDEO
+import com.gravixcloud.rtc.room.track.RemoteAudioTrack
+import com.gravixcloud.rtc.room.track.RemoteTrackPublication
+import com.gravixcloud.rtc.room.track.RemoteVideoTrack
+import com.gravixcloud.rtc.room.track.Track
+import com.gravixcloud.rtc.room.track.TrackException
+import com.gravixcloud.rtc.util.CloseableCoroutineScope
+import com.gravixcloud.rtc.util.GxLog
+import com.gravixcloud.rtc.webrtc.RTCStatsGetter
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import gravixcloud.GravixcloudModels
+import gravixcloud.GravixcloudRtc
+import org.webrtc.AudioTrack
+import org.webrtc.MediaStreamTrack
+import org.webrtc.RtpReceiver
+import org.webrtc.VideoTrack
+import javax.inject.Named
+
+/**
+ * A representation of a remote participant.
+ */
+class RemoteParticipant(
+    sid: Sid,
+    identity: Identity? = null,
+    internal val signalClient: SignalClient,
+    private val ioDispatcher: CoroutineDispatcher,
+    defaultDispatcher: CoroutineDispatcher,
+    private val audioTrackFactory: RemoteAudioTrack.Factory,
+    private val videoTrackFactory: RemoteVideoTrack.Factory,
+) : Participant(sid, identity, defaultDispatcher) {
+    /**
+     * Note: This constructor does not update all info due to event listener race conditions.
+     *
+     * Callers are responsible for calling through to [updateFromInfo] once ready.
+     *
+     * @suppress
+     */
+    @AssistedInject
+    constructor(
+        @Assisted info: GravixcloudModels.ParticipantInfo,
+        signalClient: SignalClient,
+        @Named(InjectionNames.DISPATCHER_IO)
+        ioDispatcher: CoroutineDispatcher,
+        @Named(InjectionNames.DISPATCHER_DEFAULT)
+        defaultDispatcher: CoroutineDispatcher,
+        audioTrackFactory: RemoteAudioTrack.Factory,
+        videoTrackFactory: RemoteVideoTrack.Factory,
+    ) : this(
+        Sid(info.sid),
+        Identity(info.identity),
+        signalClient,
+        ioDispatcher,
+        defaultDispatcher,
+        audioTrackFactory,
+        videoTrackFactory,
+    ) {
+        super.updateFromInfo(info)
+    }
+
+    @AssistedFactory
+    interface Factory {
+        fun create(
+            info: GravixcloudModels.ParticipantInfo,
+        ): RemoteParticipant
+    }
+    private val coroutineScope = CloseableCoroutineScope(defaultDispatcher + SupervisorJob())
+
+    /**
+     * Get a track publication with the corresponding sid.
+     */
+    fun getTrackPublication(sid: String): RemoteTrackPublication? = trackPublications[sid] as? RemoteTrackPublication
+
+    /**
+     * @suppress
+     */
+    override fun updateFromInfo(info: GravixcloudModels.ParticipantInfo) {
+        super.updateFromInfo(info)
+
+        val validTrackPublication = mutableMapOf<String, RemoteTrackPublication>()
+        val newTrackPublications = mutableMapOf<String, RemoteTrackPublication>()
+
+        for (trackInfo in info.tracksList) {
+            val trackSid = trackInfo.sid
+            var publication = getTrackPublication(trackSid)
+
+            if (publication == null) {
+                publication = RemoteTrackPublication(
+                    trackInfo,
+                    participant = this,
+                    ioDispatcher = ioDispatcher,
+                    autoSubscribe = signalClient.lastOptions?.autoSubscribe ?: true
+                )
+
+                newTrackPublications[trackSid] = publication
+                addTrackPublication(publication)
+            } else {
+                publication.updateFromInfo(trackInfo)
+            }
+
+            validTrackPublication[trackSid] = publication
+        }
+
+        for (publication in newTrackPublications.values) {
+            internalListener?.onTrackPublished(publication, this)
+            eventBus.postEvent(ParticipantEvent.TrackPublished(this, publication), scope)
+        }
+
+        val invalidKeys = trackPublications.keys - validTrackPublication.keys
+        for (invalidKey in invalidKeys) {
+            val publication = trackPublications[invalidKey] ?: continue
+            unpublishTrack(publication.sid, true)
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun addSubscribedMediaTrack(
+        mediaTrack: MediaStreamTrack,
+        sid: String,
+        statsGetter: RTCStatsGetter,
+        receiver: RtpReceiver,
+        autoManageVideo: Boolean = false,
+        triesLeft: Int = 20,
+    ) {
+        val publication = getTrackPublication(sid)
+
+        // We may receive subscribed tracks before publications come in. Retry until then.
+        if (publication == null) {
+            if (triesLeft == 0) {
+                val message = "Could not find published track with sid: $sid"
+                val exception = TrackException.InvalidTrackStateException(message)
+                GxLog.e { "remote participant ${this.sid} --- $message" }
+
+                internalListener?.onTrackSubscriptionFailed(sid, exception, this)
+                eventBus.postEvent(ParticipantEvent.TrackSubscriptionFailed(this, sid, exception), scope)
+            } else {
+                coroutineScope.launch {
+                    delay(150)
+                    addSubscribedMediaTrack(mediaTrack, sid, statsGetter, receiver = receiver, autoManageVideo, triesLeft - 1)
+                }
+            }
+            return
+        }
+
+        val track: Track = when (val kind = mediaTrack.kind()) {
+            KIND_AUDIO -> audioTrackFactory.create(rtcTrack = mediaTrack as AudioTrack, name = "", receiver = receiver)
+            KIND_VIDEO -> videoTrackFactory.create(
+                rtcTrack = mediaTrack as VideoTrack,
+                name = "",
+                autoManageVideo = autoManageVideo,
+                receiver = receiver,
+            )
+
+            else -> throw TrackException.InvalidTrackTypeException("invalid track type: $kind")
+        }
+
+        track.statsGetter = statsGetter
+
+        publication.track = track
+        publication.subscriptionAllowed = true
+        track.name = publication.name
+        track.sid = publication.sid
+
+        addTrackPublication(publication)
+        track.start()
+
+        // TODO: how does mediatrack send ended event?
+
+        internalListener?.onTrackSubscribed(track, publication, this)
+        eventBus.postEvent(ParticipantEvent.TrackSubscribed(this, track, publication), scope)
+    }
+
+    fun unpublishTrack(trackSid: String, sendUnpublish: Boolean = false) {
+        val publication = trackPublications[trackSid] as? RemoteTrackPublication ?: return
+        trackPublications = trackPublications.toMutableMap().apply { remove(trackSid) }
+
+        val track = publication.track
+        if (track != null) {
+            @Suppress("SwallowedException")
+            try {
+                track.stop()
+            } catch (e: Exception) {
+                // track may already be disposed, ignore.
+            }
+            internalListener?.onTrackUnsubscribed(track, publication, this)
+            eventBus.postEvent(ParticipantEvent.TrackUnsubscribed(this, track, publication), scope)
+        }
+        if (sendUnpublish) {
+            internalListener?.onTrackUnpublished(publication, this)
+            eventBus.postEvent(ParticipantEvent.TrackUnpublished(this, publication), scope)
+        }
+        publication.track = null
+    }
+
+    internal fun onSubscriptionPermissionUpdate(subscriptionPermissionUpdate: GravixcloudRtc.SubscriptionPermissionUpdate) {
+        val pub = trackPublications[subscriptionPermissionUpdate.trackSid] as? RemoteTrackPublication ?: return
+
+        if (pub.subscriptionAllowed != subscriptionPermissionUpdate.allowed) {
+            pub.subscriptionAllowed = subscriptionPermissionUpdate.allowed
+
+            eventBus.postEvent(
+                ParticipantEvent.TrackSubscriptionPermissionChanged(this, pub, pub.subscriptionAllowed),
+                coroutineScope,
+            )
+        }
+    }
+
+    internal fun onSubscriptionError(subscriptionResponse: GravixcloudRtc.SubscriptionResponse) {
+        val trackSid = subscriptionResponse.trackSid
+        if (trackPublications[trackSid] !is RemoteTrackPublication) {
+            return
+        }
+
+        val exception = subscriptionErrorException(subscriptionResponse.err)
+        internalListener?.onTrackSubscriptionFailed(trackSid, exception, this)
+        eventBus.postEvent(ParticipantEvent.TrackSubscriptionFailed(this, trackSid, exception), scope)
+    }
+
+    private fun subscriptionErrorException(error: GravixcloudModels.SubscriptionError): TrackException {
+        return when (error) {
+            GravixcloudModels.SubscriptionError.SE_CODEC_UNSUPPORTED -> TrackException.MediaException("Codec not supported")
+            GravixcloudModels.SubscriptionError.SE_TRACK_NOTFOUND -> TrackException.InvalidTrackStateException("Track not found")
+            GravixcloudModels.SubscriptionError.SE_UNKNOWN,
+            GravixcloudModels.SubscriptionError.UNRECOGNIZED,
+            -> TrackException.InvalidTrackStateException("Subscription failed")
+        }
+    }
+
+    // Internal methods just for posting events.
+    internal fun onDataReceived(event: RoomEvent.DataReceived) {
+        eventBus.postEvent(ParticipantEvent.DataReceived(this, event.data, event.topic, event.encryptionType), scope)
+    }
+}

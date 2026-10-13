@@ -1,0 +1,320 @@
+plugins {
+    id "org.jetbrains.dokka"
+    id 'com.android.library'
+    id 'kotlin-android'
+    id 'kotlin-kapt'
+    id 'kotlinx-serialization'
+    id 'com.google.protobuf'
+    id 'jacoco'
+    id("com.mxalbert.gradle.jacoco-android") version "0.2.1"
+    // GRAVIX: the public API is locked by api/gravix-rtc-android-sdk.api (./gradlew apiDump after an intended change).
+    id 'org.jetbrains.kotlinx.binary-compatibility-validator'
+    // GRAVIX: Maven Central publishing, configured explicitly below (the `.base` plugin reads no properties itself).
+    id 'com.vanniktech.maven.publish.base'
+}
+
+android {
+    namespace 'com.gravixcloud.rtc'
+    compileSdkVersion androidSdk.compileVersion
+
+    defaultConfig {
+        minSdkVersion androidSdk.minVersion
+        targetSdkVersion androidSdk.targetVersion
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        consumerProguardFiles 'consumer-rules.pro'
+
+        buildConfigField "String", "VERSION_NAME", "\"$VERSION_NAME\""
+        // GRAVIX: upstream engine version reported to the server (see gradle.properties).
+        buildConfigField "String", "ENGINE_VERSION", "\"$UPSTREAM_ENGINE_VERSION\""
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    testOptions {
+        unitTests {
+            includeAndroidResources = true
+        }
+    }
+    compileOptions {
+        sourceCompatibility java_version
+        targetCompatibility java_version
+    }
+    packagingOptions {
+        resources {
+            excludes += ['**/*.proto']
+        }
+    }
+
+    buildFeatures {
+        buildConfig = true
+    }
+    kotlinOptions {
+        freeCompilerArgs = ["-Xinline-classes", "-opt-in=kotlin.RequiresOptIn", "-opt-in=com.gravixcloud.rtc.annotations.Beta"]
+        jvmTarget = java_version
+    }
+
+}
+
+ext.gravixProtoIncludes = [
+        'livekit_models.proto',
+        'livekit_rtc.proto',
+        'livekit_metrics.proto',
+]
+apply from: rootProject.file('gradle/gravix-protobuf.gradle')
+
+// GRAVIX: the API dump covers the SDK's own classes. The generated protobuf classes (package `gravixcloud`,
+// regenerated from the protocol submodule on every upstream sync) are left out to keep the dump reviewable;
+// some still appear in public signatures of the SDK classes (e.g. E2EEOptions, RoomEvent.DataReceived).
+apiValidation {
+    ignoredPackages += ["gravixcloud"]
+}
+
+jacoco {
+    toolVersion = "0.8.14"
+}
+
+tasks.withType(Test) {
+    jacoco.includeNoLocationClasses = true
+    jacoco.excludes = ['jdk.internal.*']
+}
+
+jacocoAndroidUnitTestReport {
+    excludes.add('gravixcloud/**')
+}
+
+dokkaHtml {
+    moduleName.set("gravix-rtc-android-sdk")
+    dokkaSourceSets {
+        configureEach {
+            skipEmptyPackages.set(true)
+            includeNonPublic.set(false)
+            includes.from("module.md")
+            displayName.set("SDK")
+            sourceLink {
+                localDirectory.set(file("src/main/java"))
+
+                // URL showing where the source code can be accessed through the web browser
+                remoteUrl.set(new URL(
+                    "${POM_SCM_URL}/tree/main/gravix-rtc-android-sdk/src/main/java" /* GRAVIX */))
+                // Suffix which is used to append the line number to the URL. Use #L for GitHub
+                remoteLineSuffix.set("#L")
+            }
+
+            perPackageOption {
+                matchingRegex.set(".*\\.dagger.*")
+                suppress.set(true)
+            }
+
+            perPackageOption {
+                matchingRegex.set(".*\\.util.*")
+                suppress.set(true)
+            }
+        }
+    }
+}
+
+dependencies {
+    //api fileTree(dir: 'libs', include: ['*.jar'])
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+    // GRAVIX(Phase 4): `api` -- Flow/SharedFlow/CoroutineScope and suspend functions are the Kotlin Room API
+    // (Room.events, connect); as `implementation` an app with no coroutines dependency of its own could not
+    // compile against them (tools/consumer-check kotlin-minimal).
+    api libs.coroutines.lib
+    implementation libs.kotlinx.serialization.json
+    api libs.webrtc
+    api libs.okhttp.lib
+    implementation libs.okhttp.coroutines
+    implementation libs.jwtdecode
+
+    implementation libs.androidx.annotation
+    implementation libs.androidx.core
+    // GRAVIX(Phase 4): `api` -- generated protobuf types are in public signatures (E2EEOptions.encryptionType,
+    // RoomEvent.DataReceived.encryptionType, Participant.participantInfo...) and extend protobuf-javalite classes.
+    api libs.protobuf.javalite
+
+    implementation libs.android.jain.sip.ri
+
+    implementation libs.dagger.lib
+    kapt libs.dagger.compiler
+
+    api libs.semver4j
+
+    lintChecks project(':gravix-rtc-lint')
+    lintPublish project(':gravix-rtc-lint')
+
+    testImplementation libs.junit
+    testImplementation libs.robolectric
+    testImplementation libs.mockito.core
+    testImplementation libs.mockito.kotlin
+    testImplementation libs.androidx.test.core
+    testImplementation libs.coroutines.test
+    kaptTest libs.dagger.compiler
+    androidTestImplementation libs.androidx.test.junit
+    androidTestImplementation libs.espresso
+}
+
+apply from: rootProject.file('gradle/dokka-kotlin-dep-fix.gradle')
+
+// ------------------------------------------------------------------------------------------------ publishing
+// GRAVIX(Phase 4): com.gravixcloud:gravix-rtc-android on Maven Central through the Central Portal (vanniktech 0.34.0,
+// base plugin: every choice is spelled out here). Replaces upstream's gradle-mvn-push.gradle + nexus plugin. Same
+// conventions as gravix-token-java (task names, property names, release-only signing, guard, local bundle).
+//
+//  - publishToMavenLocal: never signs, needs no key or credentials (the everyday path, tools/consumer-check).
+//  - Release (the owner, RELEASING.md): ./gradlew publishToMavenCentral uploads ONE signed deployment,
+//    USER_MANAGED: nothing is public until the owner presses Publish in the Portal. Credentials:
+//    mavenCentralUsername / mavenCentralPassword (the Portal user token) in ~/.gradle/gradle.properties or
+//    ORG_GRADLE_PROJECT_*, never in this repository.
+//  - Local stand-in: ./gradlew centralBundle builds the same signed bundle zip in build/central-bundle/ (no network).
+//  - Signing runs only when publishToMavenCentral or centralBundle is named on the command line (else every
+//    publishToMavenLocal would call gpg for the release key's passphrase). Key, first match wins (blank = unset):
+//    signing.gnupg.keyName -> the gpg command (Gradle useGpgCmd(), the owner's key in his gpg-agent);
+//    signingInMemoryKey (+ signingInMemoryKeyId, signingInMemoryKeyPassword) -> in-memory key (CI, test keys).
+//  - checkReleaseSigning guards every Central upload and the bundle: vanniktech registers the end-of-build upload
+//    in prepareMavenCentralPublishing, which ANY *ToMavenCentralRepository publish runs (a plain `./gradlew
+//    publish` too). The guard stops such a build first unless a release task was named and a key is set. It also
+//    refuses publishAndReleaseToMavenCentral (the owner publishes by hand) and, for an upload, a VERSION_NAME that
+//    is not x.y.z or a POM still holding the .invalid placeholders: a Central release can never be changed.
+def gxProp = { String name ->
+    def v = providers.gradleProperty(name).orNull
+    (v == null || v.trim().isEmpty()) ? null : v.trim()
+}
+def gxSigningSource = gxProp('signing.gnupg.keyName') != null ? 'gpg command (signing.gnupg.keyName)' :
+    (gxProp('signingInMemoryKey') != null ? 'in-memory key (signingInMemoryKey)' : null)
+def gxTaskNames = gradle.startParameter.taskNames.collect { it.substring(it.lastIndexOf(':') + 1) }
+def gxUploadRequested = gxTaskNames.any { it == 'publishToMavenCentral' || it.endsWith('ToMavenCentralRepository') }
+def gxReleaseRequested = gxUploadRequested || gxTaskNames.contains('centralBundle')
+def gxAutoReleaseRequested = gxTaskNames.contains('publishAndReleaseToMavenCentral')
+def gxReleaseProblems = []
+if (!(VERSION_NAME ==~ /\d+\.\d+\.\d+/)) {
+    gxReleaseProblems << "VERSION_NAME '$VERSION_NAME' is not a plain x.y.z release version"
+}
+['POM_URL', 'POM_SCM_URL', 'POM_SCM_CONNECTION', 'POM_SCM_DEV_CONNECTION'].each { key ->
+    if (project.property(key).toString().contains('.invalid')) {
+        gxReleaseProblems << "$key is still the .invalid placeholder (set the public source repository)"
+    }
+}
+
+def checkReleaseSigning = tasks.register('checkReleaseSigning') {
+    group = 'verification'
+    description = 'Fails unless release signing is on. Maven Central uploads and centralBundle depend on it.'
+    def source = gxSigningSource
+    def requested = gxReleaseRequested
+    def upload = gxUploadRequested
+    def autoRelease = gxAutoReleaseRequested
+    def problems = gxReleaseProblems.collect { it.toString() }
+    doLast {
+        if (autoRelease) {
+            throw new GradleException('publishAndReleaseToMavenCentral is not used here: run publishToMavenCentral ' +
+                'and press Publish in the Central Portal (RELEASING.md).')
+        }
+        if (source == null) {
+            throw new GradleException('No signing key configured. Set signing.gnupg.keyName (gpg + gpg-agent) or ' +
+                'signingInMemoryKey / signingInMemoryKeyId / signingInMemoryKeyPassword in ~/.gradle/gradle.properties ' +
+                'or as ORG_GRADLE_PROJECT_* environment variables. See RELEASING.md.')
+        }
+        if (!requested) {
+            throw new GradleException('Release signing is switched on only when publishToMavenCentral or centralBundle ' +
+                'is named on the command line. Run the release by that full task name.')
+        }
+        if (upload && !problems.isEmpty()) {
+            throw new GradleException('Not uploading to Maven Central: ' + problems.join('; ') + '. See RELEASING.md.')
+        }
+        if (!problems.isEmpty()) {
+            logger.warn('centralBundle: NOT releasable as is: ' + problems.join('; '))
+        }
+        logger.lifecycle("Release signing: $source")
+    }
+}
+tasks.matching { it.name == 'prepareMavenCentralPublishing' }.configureEach { dependsOn(checkReleaseSigning) }
+// and every publish to the Central repository directly (as in gravix-token-java), should the plugin ever rename the
+// prepare task
+tasks.withType(PublishToMavenRepository).configureEach {
+    if (name.endsWith('ToMavenCentralRepository')) {
+        dependsOn(checkReleaseSigning)
+    }
+}
+
+mavenPublishing {
+    configure(new com.vanniktech.maven.publish.AndroidSingleVariantLibrary('release', true, true))
+    coordinates(GROUP, POM_ARTIFACT_ID, VERSION_NAME)
+    pom {
+        name = POM_NAME
+        description = POM_DESCRIPTION
+        inceptionYear = POM_INCEPTION_YEAR
+        url = POM_URL
+        licenses {
+            license {
+                name = POM_LICENCE_NAME
+                url = POM_LICENCE_URL
+                distribution = POM_LICENCE_DIST
+            }
+        }
+        developers {
+            developer {
+                id = POM_DEVELOPER_ID
+                name = POM_DEVELOPER_NAME
+                url = POM_DEVELOPER_URL
+                organization = POM_DEVELOPER_NAME
+                organizationUrl = POM_DEVELOPER_URL
+            }
+        }
+        scm {
+            url = POM_SCM_URL
+            connection = POM_SCM_CONNECTION
+            developerConnection = POM_SCM_DEV_CONNECTION
+        }
+    }
+    // automaticRelease=false: the upload waits in the Portal (USER_MANAGED) until the owner presses Publish.
+    publishToMavenCentral(false)
+    // signAllPublications() wires the in-memory key itself when signingInMemoryKey is set; useGpgCmd() after it takes
+    // over when signing.gnupg.keyName is set.
+    if (gxReleaseRequested && gxSigningSource != null) {
+        signAllPublications()
+        if (gxProp('signing.gnupg.keyName') != null) {
+            signing {
+                useGpgCmd()
+            }
+        }
+    }
+}
+
+// Local stand-in for the Central upload: `./gradlew centralBundle` (needs a signing key) publishes into
+// build/central-bundle/repo and zips it to build/central-bundle/gravix-rtc-android-<version>-bundle.zip: Maven layout,
+// md5/sha1/sha256/sha512 of each artifact (Gradle writes them for a file repository; Maven Local gets none), .asc
+// signatures without checksums of their own, no maven-metadata. No network. The repository is deliberately NOT
+// named "...MavenCentral...": vanniktech hooks its upload into every publish task ending in "ToMavenCentralRepository".
+def gxBundleDir = layout.buildDirectory.dir('central-bundle')
+publishing {
+    repositories {
+        maven {
+            name = 'localCentralBundle'
+            url = gxBundleDir.map { it.dir('repo') }
+        }
+    }
+}
+def cleanCentralBundle = tasks.register('cleanCentralBundle', Delete) {
+    delete(gxBundleDir)
+}
+tasks.withType(PublishToMavenRepository).configureEach {
+    if (name.endsWith('ToLocalCentralBundleRepository')) {
+        dependsOn(cleanCentralBundle, checkReleaseSigning)
+    }
+}
+tasks.register('centralBundle', Zip) {
+    group = 'publishing'
+    description = 'Builds the signed Maven Central upload bundle locally (no upload).'
+    dependsOn('publishAllPublicationsToLocalCentralBundleRepository')
+    from(gxBundleDir.map { it.dir('repo') }) {
+        exclude('**/maven-metadata*')
+        exclude('**/*.asc.md5', '**/*.asc.sha1', '**/*.asc.sha256', '**/*.asc.sha512')
+    }
+    destinationDirectory = gxBundleDir
+    archiveFileName = "gravix-rtc-android-${VERSION_NAME}-bundle.zip"
+}

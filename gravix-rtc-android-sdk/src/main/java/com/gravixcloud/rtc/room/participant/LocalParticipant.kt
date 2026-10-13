@@ -1,0 +1,1863 @@
+/*
+ * Copyright 2023-2026 LiveKit, Inc.
+ * Modifications Copyright 2026 Gravity Compile
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.gravixcloud.rtc.room.participant
+
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import androidx.annotation.CheckResult
+import androidx.annotation.VisibleForTesting
+import com.google.protobuf.ByteString
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedFactory
+import dagger.assisted.AssistedInject
+import com.gravixcloud.rtc.ConnectOptions
+import com.gravixcloud.rtc.audio.ScreenAudioCapturer
+import com.gravixcloud.rtc.dagger.CapabilitiesGetter
+import com.gravixcloud.rtc.dagger.InjectionNames
+import com.gravixcloud.rtc.events.ParticipantEvent
+import com.gravixcloud.rtc.room.ClientProtocolVersion
+import com.gravixcloud.rtc.room.ConnectionState
+import com.gravixcloud.rtc.room.DefaultsManager
+import com.gravixcloud.rtc.room.RTCEngine
+import com.gravixcloud.rtc.room.Room
+import com.gravixcloud.rtc.room.SenderTransceiverHandle
+import com.gravixcloud.rtc.room.TrackBitrateInfo
+import com.gravixcloud.rtc.room.datastream.outgoing.OutgoingDataStreamManager
+import com.gravixcloud.rtc.room.isSVCCodec
+import com.gravixcloud.rtc.room.rpc.RpcClientManager
+import com.gravixcloud.rtc.room.rpc.RpcManager
+import com.gravixcloud.rtc.room.rpc.RpcServerManager
+import com.gravixcloud.rtc.room.track.DataPublishReliability
+import com.gravixcloud.rtc.room.track.LocalAudioTrack
+import com.gravixcloud.rtc.room.track.LocalAudioTrackOptions
+import com.gravixcloud.rtc.room.track.LocalScreencastVideoTrack
+import com.gravixcloud.rtc.room.track.LocalTrackPublication
+import com.gravixcloud.rtc.room.track.LocalVideoTrack
+import com.gravixcloud.rtc.room.track.LocalVideoTrackOptions
+import com.gravixcloud.rtc.room.track.Track
+import com.gravixcloud.rtc.room.track.TrackException
+import com.gravixcloud.rtc.room.track.TrackPublication
+import com.gravixcloud.rtc.room.track.VideoCaptureParameter
+import com.gravixcloud.rtc.room.track.VideoCodec
+import com.gravixcloud.rtc.room.track.VideoEncoding
+import com.gravixcloud.rtc.room.track.VideoPreset
+import com.gravixcloud.rtc.room.track.screencapture.ScreenCaptureParams
+import com.gravixcloud.rtc.room.util.EncodingUtils
+import com.gravixcloud.rtc.rpc.RpcError
+import com.gravixcloud.rtc.util.GxLog
+import com.gravixcloud.rtc.util.flow
+import com.gravixcloud.rtc.util.rethrowIfCancellationSignal
+import com.gravixcloud.rtc.webrtc.sortVideoCodecPreferences
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import gravixcloud.GravixcloudModels
+import gravixcloud.GravixcloudModels.AudioTrackFeature
+import gravixcloud.GravixcloudModels.Codec
+import gravixcloud.GravixcloudModels.DataPacket
+import gravixcloud.GravixcloudModels.TrackInfo
+import gravixcloud.GravixcloudRtc
+import gravixcloud.GravixcloudRtc.AddTrackRequest
+import gravixcloud.GravixcloudRtc.SimulcastCodec
+import org.webrtc.EglBase
+import org.webrtc.PeerConnectionFactory
+import org.webrtc.RtpParameters
+import org.webrtc.RtpTransceiver
+import org.webrtc.RtpTransceiver.RtpTransceiverInit
+import org.webrtc.SurfaceTextureHelper
+import org.webrtc.VideoCapturer
+import org.webrtc.VideoProcessor
+import java.util.Collections
+import java.util.concurrent.atomic.AtomicBoolean
+import javax.inject.Named
+import kotlin.coroutines.coroutineContext
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.time.Duration
+
+class LocalParticipant
+@AssistedInject
+internal constructor(
+    @Assisted
+    internal var dynacast: Boolean,
+    internal val engine: RTCEngine,
+    private val peerConnectionFactory: PeerConnectionFactory,
+    private val context: Context,
+    private val eglBase: EglBase,
+    private val screencastVideoTrackFactory: LocalScreencastVideoTrack.Factory,
+    private val videoTrackFactory: LocalVideoTrack.Factory,
+    private val audioTrackFactory: LocalAudioTrack.Factory,
+    private val defaultsManager: DefaultsManager,
+    @Named(InjectionNames.DISPATCHER_DEFAULT)
+    coroutineDispatcher: CoroutineDispatcher,
+    @Named(InjectionNames.SENDER)
+    private val capabilitiesGetter: CapabilitiesGetter,
+    private val outgoingDataStreamManager: OutgoingDataStreamManager,
+    private val rpcClientManager: RpcClientManager,
+    private val rpcServerManager: RpcServerManager,
+) : Participant(Sid(""), null, coroutineDispatcher),
+    OutgoingDataStreamManager by outgoingDataStreamManager,
+    RpcManager {
+
+    var audioTrackCaptureDefaults: LocalAudioTrackOptions by defaultsManager::audioTrackCaptureDefaults
+    var audioTrackPublishDefaults: AudioTrackPublishDefaults by defaultsManager::audioTrackPublishDefaults
+    var videoTrackCaptureDefaults: LocalVideoTrackOptions by defaultsManager::videoTrackCaptureDefaults
+    var videoTrackPublishDefaults: VideoTrackPublishDefaults by defaultsManager::videoTrackPublishDefaults
+    var screenShareTrackCaptureDefaults: LocalVideoTrackOptions by defaultsManager::screenShareTrackCaptureDefaults
+    var screenShareTrackPublishDefaults: VideoTrackPublishDefaults by defaultsManager::screenShareTrackPublishDefaults
+
+    private var republishes: List<LocalTrackPublication>? = null
+    private val localTrackPublications
+        get() = trackPublications.values
+            .mapNotNull { it as? LocalTrackPublication }
+            .toList()
+
+    private val jobs = mutableMapOf<LocalTrackPublication, Job>()
+
+    // For ensuring that only one caller can execute setTrackEnabled at a time.
+    // Without it, there's a potential to create multiple of the same source,
+    // Camera has deadlock issues with multiple CameraCapturers trying to activate/stop.
+    private val sourcePubLocks = Track.Source.entries.associateWith { Mutex() }
+
+    internal val enabledPublishVideoCodecs = Collections.synchronizedList(mutableListOf<Codec>())
+
+    private var defaultAudioTrack: LocalAudioTrack? = null
+    private var defaultVideoTrack: LocalVideoTrack? = null
+
+    internal fun reinitialize(connectOptions: ConnectOptions) {
+        reinitialize()
+        clientProtocol = connectOptions.clientProtocol.value
+    }
+
+    /**
+     * Returns the default audio track, or creates one if it doesn't exist.
+     * @exception SecurityException will be thrown if [Manifest.permission.RECORD_AUDIO] permission is missing.
+     */
+    fun getOrCreateDefaultAudioTrack(): LocalAudioTrack {
+        return defaultAudioTrack ?: createAudioTrack().also {
+            defaultAudioTrack = it
+        }
+    }
+
+    /**
+     * Returns the default video track, or creates one if it doesn't exist.
+     * @exception SecurityException will be thrown if [Manifest.permission.CAMERA] permission is missing.
+     */
+    fun getOrCreateDefaultVideoTrack(): LocalVideoTrack {
+        return defaultVideoTrack ?: createVideoTrack().also {
+            defaultVideoTrack = it
+        }
+    }
+
+    /**
+     * Creates an audio track, recording audio through the microphone with the given [options].
+     *
+     * @param name The name of the track.
+     * @param options The capture options to use for this track, or [Room.audioTrackCaptureDefaults] if none is passed.
+     * @exception SecurityException will be thrown if [Manifest.permission.RECORD_AUDIO] permission is missing.
+     */
+    fun createAudioTrack(
+        name: String = "",
+        options: LocalAudioTrackOptions = audioTrackCaptureDefaults,
+    ): LocalAudioTrack {
+        return LocalAudioTrack.createTrack(context, peerConnectionFactory, options, audioTrackFactory, name)
+    }
+
+    /**
+     * Creates a video track, recording video through the supplied [capturer].
+     *
+     * This method will call [VideoCapturer.initialize] and handle the lifecycle of
+     * [SurfaceTextureHelper].
+     *
+     * @param name The name of the track.
+     * @param capturer The capturer to use for this track.
+     * @param options The capture options to use for this track, or [Room.videoTrackCaptureDefaults] if none is passed.
+     * @param videoProcessor A video processor to attach to this track that can modify the frames before publishing.
+     */
+    fun createVideoTrack(
+        name: String = "",
+        capturer: VideoCapturer,
+        options: LocalVideoTrackOptions = videoTrackCaptureDefaults.copy(),
+        videoProcessor: VideoProcessor? = null,
+    ): LocalVideoTrack {
+        return LocalVideoTrack.createTrack(
+            peerConnectionFactory = peerConnectionFactory,
+            context = context,
+            name = name,
+            capturer = capturer,
+            options = options,
+            rootEglBase = eglBase,
+            trackFactory = videoTrackFactory,
+            videoProcessor = videoProcessor,
+        )
+    }
+
+    /**
+     * Creates a video track, recording video through the camera with the given [options].
+     *
+     * Note: If using this in conjunction with [setCameraEnabled], ensure that your created
+     * camera track is published first before using [setCameraEnabled]. Otherwise, the Gravix
+     * SDK will attempt to create its own camera track to manage, and will cause issues since
+     * generally only one camera session can be active at a time.
+     *
+     * @param name The name of the track
+     * @param options The capture options to use for this track, or [Room.videoTrackCaptureDefaults] if none is passed.
+     * @param videoProcessor A video processor to attach to this track that can modify the frames before publishing.
+     * @exception SecurityException will be thrown if [Manifest.permission.CAMERA] permission is missing.
+     */
+    fun createVideoTrack(
+        name: String = "",
+        options: LocalVideoTrackOptions = videoTrackCaptureDefaults.copy(),
+        videoProcessor: VideoProcessor? = null,
+    ): LocalVideoTrack {
+        return LocalVideoTrack.createCameraTrack(
+            peerConnectionFactory,
+            context,
+            name,
+            options,
+            eglBase,
+            videoTrackFactory,
+            videoProcessor = videoProcessor,
+        )
+    }
+
+    /**
+     * Creates a screencast video track.
+     *
+     * @param name The name of the track.
+     * @param mediaProjectionPermissionResultData The resultData returned from launching
+     * [MediaProjectionManager.createScreenCaptureIntent()](https://developer.android.com/reference/android/media/projection/MediaProjectionManager#createScreenCaptureIntent()).
+     * @param options The capture options to use for this track, or [Room.screenShareTrackCaptureDefaults] if none is passed.
+     * @param videoProcessor A video processor to attach to this track that can modify the frames before publishing.
+     */
+    fun createScreencastTrack(
+        name: String = "",
+        mediaProjectionPermissionResultData: Intent,
+        options: LocalVideoTrackOptions = screenShareTrackCaptureDefaults.copy(),
+        videoProcessor: VideoProcessor? = null,
+        onStop: (Track) -> Unit,
+    ): LocalScreencastVideoTrack {
+        val screencastOptions = options.copy(isScreencast = true)
+        return LocalScreencastVideoTrack.createTrack(
+            mediaProjectionPermissionResultData,
+            peerConnectionFactory,
+            context,
+            name,
+            screencastOptions,
+            eglBase,
+            screencastVideoTrackFactory,
+            videoProcessor,
+            onStop,
+        )
+    }
+
+    override fun getTrackPublication(source: Track.Source): LocalTrackPublication? {
+        return super.getTrackPublication(source) as? LocalTrackPublication
+    }
+
+    override fun getTrackPublicationByName(name: String): LocalTrackPublication? {
+        return super.getTrackPublicationByName(name) as? LocalTrackPublication
+    }
+
+    /**
+     * If set to enabled, creates and publishes a camera video track if not already done, and starts the camera.
+     *
+     * If set to disabled, mutes and stops the camera.
+     *
+     * This will use capture and publish default options from [Room].
+     *
+     * @see Room.videoTrackCaptureDefaults
+     * @see Room.videoTrackPublishDefaults
+     * @return true if the change was successful, or false if it failed.
+     */
+    @Throws(TrackException.PublishException::class)
+    suspend fun setCameraEnabled(enabled: Boolean): Boolean {
+        return setTrackEnabled(Track.Source.CAMERA, enabled)
+    }
+
+    /**
+     * If set to enabled, creates and publishes a microphone audio track if not already done, and unmutes the mic.
+     *
+     * If set to disabled, mutes the mic.
+     *
+     * This will use capture and publish default options from [Room].
+     *
+     * @see Room.audioTrackCaptureDefaults
+     * @see Room.audioTrackPublishDefaults
+     * @return true if the change was successful, or false if it failed.
+     */
+    @Throws(TrackException.PublishException::class)
+    suspend fun setMicrophoneEnabled(enabled: Boolean): Boolean {
+        return setTrackEnabled(Track.Source.MICROPHONE, enabled)
+    }
+
+    /**
+     * If set to enabled, creates and publishes a screenshare video track.
+     *
+     * If set to disabled, unpublishes the screenshare video track.
+     *
+     * This will use capture and publish default options from [Room].
+     *
+     * For screenshare audio, a [ScreenAudioCapturer] can be used.
+     *
+     * If a screen capture track is created but enabling fails or is cancelled, the capture is
+     * stopped and released, and [ScreenCaptureParams.onStop] is invoked.
+     *
+     * @param screenCaptureParams When enabling the screenshare, this must be provided with
+     * [ScreenCaptureParams.mediaProjectionPermissionResultData] containing resultData returned from launching
+     * [MediaProjectionManager.createScreenCaptureIntent()](https://developer.android.com/reference/android/media/projection/MediaProjectionManager#createScreenCaptureIntent()).
+     * @throws IllegalArgumentException if attempting to enable screenshare without [screenCaptureParams]
+     * @see Room.screenShareTrackCaptureDefaults
+     * @see Room.screenShareTrackPublishDefaults
+     * @see ScreenAudioCapturer
+     * @return true if the change was successful, or false if it failed.
+     */
+    @Throws(TrackException.PublishException::class)
+    suspend fun setScreenShareEnabled(
+        enabled: Boolean,
+        screenCaptureParams: ScreenCaptureParams? = null,
+    ): Boolean {
+        return setTrackEnabled(Track.Source.SCREEN_SHARE, enabled, screenCaptureParams)
+    }
+
+    private fun isTrackPublished(track: Track): Boolean {
+        return localTrackPublications.any { it.track == track }
+    }
+
+    private suspend fun setTrackEnabled(
+        source: Track.Source,
+        enabled: Boolean,
+        screenCaptureParams: ScreenCaptureParams? = null,
+    ): Boolean {
+        var success = false
+        val pubLock = sourcePubLocks[source]!!
+        pubLock.withLock {
+            val pub = getTrackPublication(source)
+            if (enabled) {
+                if (pub != null) {
+                    // Publication exists, just unmute the existing track.
+                    pub.muted = false
+                    if (source == Track.Source.CAMERA && pub.track is LocalVideoTrack) {
+                        (pub.track as? LocalVideoTrack)?.startCapture()
+                    }
+                    success = true
+                } else {
+                    // Not published yet, create the default track and publish.
+                    when (source) {
+                        Track.Source.CAMERA -> {
+                            val track = getOrCreateDefaultVideoTrack()
+                            try {
+                                track.start()
+                                track.startCapture()
+                                // A concurrent publish outside the pub lock may already own this
+                                // shared track, in which case it is live and the enable succeeded.
+                                success = publishVideoTrack(track) || isTrackPublished(track)
+                            } finally {
+                                // Cancellation unwinds without assigning success, so ownership is
+                                // rechecked here before tearing the track down.
+                                if (!success && !isTrackPublished(track)) {
+                                    track.stopCapture()
+                                    track.stop()
+                                }
+                            }
+                        }
+
+                        Track.Source.MICROPHONE -> {
+                            val track = getOrCreateDefaultAudioTrack()
+                            try {
+                                track.prewarm()
+                                track.start()
+                                // A concurrent publish outside the pub lock may already own this
+                                // shared track, in which case it is live and the enable succeeded.
+                                success = publishAudioTrack(track) || isTrackPublished(track)
+                            } finally {
+                                // Cancellation unwinds without assigning success, so ownership is
+                                // rechecked here before tearing the track down.
+                                if (!success && !isTrackPublished(track)) {
+                                    track.stop()
+                                    track.stopPrewarm()
+                                }
+                            }
+                        }
+
+                        Track.Source.SCREEN_SHARE -> {
+                            if (screenCaptureParams == null) {
+                                throw IllegalArgumentException("Media Projection params is required to create a screen share track.")
+                            }
+                            // MediaProjection termination and setup failure may race, but onStop
+                            // is a single terminal signal for each enable attempt.
+                            val stopNotified = AtomicBoolean(false)
+                            fun notifyStopped() {
+                                if (stopNotified.compareAndSet(false, true)) {
+                                    screenCaptureParams.onStop?.invoke()
+                                }
+                            }
+
+                            val track =
+                                createScreencastTrack(mediaProjectionPermissionResultData = screenCaptureParams.mediaProjectionPermissionResultData) {
+                                    unpublishTrack(it)
+                                    notifyStopped()
+                                }
+                            try {
+                                track.startForegroundService(screenCaptureParams.notificationId, screenCaptureParams.notification)
+                                track.startCapture()
+                                success = publishVideoTrack(track, options = VideoTrackPublishOptions(null, screenShareTrackPublishDefaults))
+                            } finally {
+                                if (!success) {
+                                    // stop() releases the screen capture service binding as well.
+                                    track.stopCapture()
+                                    track.stop()
+                                    track.dispose()
+                                    notifyStopped()
+                                }
+                            }
+                        }
+
+                        else -> {
+                            GxLog.w { "Attempting to enable an unknown source, ignoring." }
+                        }
+                    }
+                }
+            } else {
+                pub?.track?.let { track ->
+                    // screenshare cannot be muted, unpublish instead
+                    if (pub.source == Track.Source.SCREEN_SHARE) {
+                        unpublishTrack(track)
+                    } else {
+                        pub.muted = true
+
+                        // Release camera session so other apps can use.
+                        if (pub.source == Track.Source.CAMERA && track is LocalVideoTrack) {
+                            track.stopCapture()
+                        }
+                    }
+                }
+                success = true
+            }
+            return@withLock
+        }
+
+        return success
+    }
+
+    /**
+     * Publishes an audio track.
+     *
+     * @param track The track to publish.
+     * @param options The publish options to use, or [Room.audioTrackPublishDefaults] if none is passed.
+     * @return true if the track published successfully
+     */
+    suspend fun publishAudioTrack(
+        track: LocalAudioTrack,
+        options: AudioTrackPublishOptions = AudioTrackPublishOptions(
+            null,
+            audioTrackPublishDefaults,
+        ).copy(preconnect = defaultsManager.isPrerecording),
+        publishListener: PublishListener? = null,
+    ): Boolean {
+        if (track.isDisposed) {
+            GxLog.w { "Attempting to publish a disposed track, ignoring." }
+            return false
+        }
+
+        val encodings = listOf(
+            RtpParameters.Encoding(null, true, null).apply {
+                if (options.audioBitrate != null && options.audioBitrate > 0) {
+                    maxBitrateBps = options.audioBitrate
+                }
+            },
+        )
+        var publication: LocalTrackPublication? = null
+        try {
+            publication = publishTrackImpl(
+                track = track,
+                options = options,
+                requestConfig = {
+                    disableDtx = !options.dtx
+                    disableRed = !options.red
+                    addAllAudioFeatures(options.getFeaturesList())
+                    source = options.source?.toProto() ?: GravixcloudModels.TrackSource.MICROPHONE
+                },
+                encodings = encodings,
+                publishListener = publishListener,
+            )
+        } catch (e: TrackException.PublishException) {
+            GxLog.e(e) { "Error thrown when publishing track:" }
+        }
+
+        if (publication != null) {
+            val job = scope.launch {
+                track::features.flow.collect {
+                    engine.updateLocalAudioTrack(publication.sid, it + options.getFeaturesList())
+                }
+            }
+            jobs[publication] = job
+        }
+
+        return publication != null
+    }
+
+    /**
+     * Publishes an video track.
+     *
+     * @param track The track to publish.
+     * @param options The publish options to use, or [Room.videoTrackPublishDefaults] if none is passed.
+     * @return true if the track published successfully
+     */
+    suspend fun publishVideoTrack(
+        track: LocalVideoTrack,
+        options: VideoTrackPublishOptions = VideoTrackPublishOptions(
+            null,
+            if (track.options.isScreencast) screenShareTrackPublishDefaults else videoTrackPublishDefaults,
+        ),
+        publishListener: PublishListener? = null,
+    ): Boolean {
+        @Suppress("NAME_SHADOWING") var options = options
+
+        if (track.isDisposed) {
+            GxLog.w { "Attempting to publish a disposed track, ignoring." }
+            return false
+        }
+
+        val rtcTrackId = track.withRTCTrack(null) { id() }
+        if (rtcTrackId == null) {
+            GxLog.w { "Attempting to publish a disposed track, ignoring." }
+            return false
+        }
+
+        synchronized(enabledPublishVideoCodecs) {
+            if (enabledPublishVideoCodecs.isNotEmpty()) {
+                if (enabledPublishVideoCodecs.none { allowedCodec -> allowedCodec.mime.mimeTypeToVideoCodec().equals(options.videoCodec, ignoreCase = true) }) {
+                    val oldCodec = options.videoCodec
+                    val newCodec = enabledPublishVideoCodecs
+                        .firstOrNull { it.mime.mimeTypeToVideoCodec() != null }
+                        ?.mime?.mimeTypeToVideoCodec()
+
+                    if (newCodec != null) {
+                        GxLog.w { "$oldCodec not enabled on server, falling back to supported codec $newCodec" }
+                        options = options.copy(videoCodec = newCodec)
+                    }
+                }
+            }
+        }
+
+        val isSVC = isSVCCodec(options.videoCodec)
+
+        if (isSVC) {
+            dynacast = true
+
+            // Ensure backup codec and scalability for svc codecs.
+            if (options.backupCodec == null) {
+                options = options.copy(backupCodec = BackupVideoCodec())
+            }
+            if (options.scalabilityMode == null) {
+                options = options.copy(scalabilityMode = "L3T3_KEY")
+            }
+            // VP9/AV1 with screen sharing requires single spatial layer, always override
+            if (track.options.isScreencast) {
+                options = options.copy(scalabilityMode = "L1T3")
+            }
+        }
+        val encodings = computeVideoEncodings(track.options.isScreencast, track.dimensions, options)
+        val videoLayers =
+            EncodingUtils.videoLayersFromEncodings(track.dimensions.width, track.dimensions.height, encodings, isSVC)
+
+        var publication: LocalTrackPublication? = null
+        try {
+            publication = publishTrackImpl(
+                track = track,
+                options = options,
+                requestConfig = {
+                    width = track.dimensions.width
+                    height = track.dimensions.height
+                    source = resolveVideoTrackSource(track, options).toProto()
+                    addAllLayers(videoLayers)
+
+                    addSimulcastCodecs(
+                        with(SimulcastCodec.newBuilder()) {
+                            codec = options.videoCodec
+                            cid = rtcTrackId
+                            build()
+                        },
+                    )
+                    // set up backup codec
+                    if (options.backupCodec?.codec != null && options.videoCodec != options.backupCodec?.codec) {
+                        addSimulcastCodecs(
+                            with(SimulcastCodec.newBuilder()) {
+                                codec = options.backupCodec!!.codec
+                                cid = ""
+                                build()
+                            },
+                        )
+                    }
+                },
+                encodings = encodings,
+                publishListener = publishListener,
+            )
+        } catch (e: TrackException.PublishException) {
+            GxLog.e(e) { "Error thrown when publishing track:" }
+        }
+
+        return publication != null
+    }
+
+    private fun hasPermissionsToPublish(source: Track.Source): Boolean {
+        val permissions = this.permissions
+        if (permissions == null) {
+            GxLog.w { "No permissions present for publishing track." }
+            return false
+        }
+        val canPublish = permissions.canPublish
+        val canPublishSources = permissions.canPublishSources
+
+        val sourceAllowed = canPublishSources.contains(source)
+
+        if (canPublish && (canPublishSources.isEmpty() || sourceAllowed)) {
+            return true
+        }
+
+        GxLog.w { "insufficient permissions to publish" }
+        return false
+    }
+
+    /**
+     * @throws TrackException.PublishException thrown when the publish fails. see [TrackException.PublishException.message] for details.
+     * @return true if the track publish was successful.
+     */
+    @Throws(TrackException.PublishException::class)
+    private suspend fun publishTrackImpl(
+        track: Track,
+        options: TrackPublishOptions,
+        requestConfig: AddTrackRequest.Builder.() -> Unit,
+        encodings: List<RtpParameters.Encoding> = emptyList(),
+        publishListener: PublishListener? = null,
+    ): LocalTrackPublication? {
+        if (track.isDisposed) {
+            GxLog.w { "Attempting to publish a disposed track, ignoring." }
+            return null
+        }
+
+        fun onPublishFailure(e: TrackException.PublishException, triggerEvent: Boolean = true) {
+            publishListener?.onPublishFailure(e)
+            if (triggerEvent) {
+                eventBus.postEvent(ParticipantEvent.LocalTrackPublicationFailed(this, track, e), scope)
+            }
+        }
+
+        val addTrackRequestBuilder = AddTrackRequest.newBuilder().apply {
+            this.requestConfig()
+        }
+
+        val trackSource = Track.Source.fromProto(addTrackRequestBuilder.source ?: GravixcloudModels.TrackSource.UNRECOGNIZED)
+        if (!hasPermissionsToPublish(trackSource)) {
+            val exception = TrackException.PublishException("Failed to publish track, insufficient permissions")
+            onPublishFailure(exception)
+            throw exception
+        }
+
+        @Suppress("NAME_SHADOWING") var options = options
+
+        @Suppress("NAME_SHADOWING") var encodings = encodings
+
+        if (isTrackPublished(track)) {
+            GxLog.w { "Track has already been published, not publishing again." }
+            onPublishFailure(TrackException.PublishException("Track has already been published"), triggerEvent = false)
+            return null
+        }
+
+        if (engine.connectionState == ConnectionState.DISCONNECTED) {
+            onPublishFailure(TrackException.PublishException("Not connected!"))
+            return null
+        }
+
+        if (track is LocalVideoTrack) {
+            track.clearSimulcastCodecs()
+        }
+
+        val cid = try {
+            track.rtcTrack.id()
+        } catch (e: Exception) {
+            onPublishFailure(TrackException.PublishException("Failed to get track id", e))
+            return null
+        }
+
+        // For fast publish, we can negotiate PC and request add track at the same time
+        var senderTransceiver: SenderTransceiverHandle? = null
+        var previousTrackTransceiver: RtpTransceiver? = null
+        suspend fun negotiate() {
+            if (this.engine.publisher == null) {
+                throw IllegalStateException("publisher is not configured yet!")
+            }
+
+            val transInit = RtpTransceiverInit(
+                RtpTransceiver.RtpTransceiverDirection.SEND_ONLY,
+                listOf(this.sid.value),
+                encodings,
+            )
+            // Ownership must be recorded before cancellation can discard the RTC-thread result.
+            val createdTransceiver = withContext(NonCancellable) {
+                engine.createSenderTransceiver(track.rtcTrack, transInit).also {
+                    senderTransceiver = it
+                }
+            }
+            coroutineContext.ensureActive()
+            val transceiver = createdTransceiver?.transceiver
+
+            if (transceiver == null) {
+                val exception = TrackException.PublishException("null sender returned from peer connection")
+                onPublishFailure(exception)
+                throw exception
+            }
+
+            when (track) {
+                is LocalVideoTrack -> {
+                    previousTrackTransceiver = track.transceiver
+                    track.transceiver = transceiver
+                }
+
+                is LocalAudioTrack -> {
+                    previousTrackTransceiver = track.transceiver
+                    track.transceiver = transceiver
+                }
+
+                else -> {
+                    throw IllegalArgumentException("Trying to publish a non local track of type ${track.javaClass}")
+                }
+            }
+
+            track.statsGetter = engine.createStatsGetter(transceiver.sender)
+
+            val finalOptions = options
+            // Handle trackBitrates
+            if (encodings.isNotEmpty()) {
+                if (finalOptions is VideoTrackPublishOptions && isSVCCodec(finalOptions.videoCodec) && encodings.firstOrNull()?.maxBitrateBps != null) {
+                    engine.registerTrackBitrateInfo(
+                        cid = cid,
+                        TrackBitrateInfo(
+                            codec = finalOptions.videoCodec,
+                            maxBitrate = (encodings.first().maxBitrateBps?.div(1000) ?: 0).toLong(),
+                        ),
+                    )
+                }
+            }
+
+            if (finalOptions is VideoTrackPublishOptions) {
+                // Set preferred video codec order
+                transceiver.sortVideoCodecPreferences(finalOptions.videoCodec, capabilitiesGetter)
+                (track as LocalVideoTrack).codec = finalOptions.videoCodec
+
+                transceiver.applyDegradationPreference(finalOptions.degradationPreference, trackSource)
+            }
+
+            // PublisherTransportObserver.onRenegotiationNeeded() gets triggered automatically
+            // so no need to call negotiate manually.
+        }
+
+        suspend fun requestAddTrack(): TrackInfo? {
+            return try {
+                engine.addTrack(
+                    cid = cid,
+                    name = options.name ?: track.name,
+                    kind = track.kind.toProto(),
+                    stream = options.stream,
+                    builder = addTrackRequestBuilder,
+                )
+            } catch (e: Exception) {
+                onPublishFailure(TrackException.PublishException("Failed to publish track", e))
+                e.rethrowIfCancellationSignal()
+                null
+            }
+        }
+
+        var publication: LocalTrackPublication? = null
+        try {
+            val trackInfo: TrackInfo?
+            if (enabledPublishVideoCodecs.isNotEmpty()) {
+                // Can simultaneous publish and negotiate.
+                // codec is pre-verified in publishVideoTrack
+                trackInfo = coroutineScope {
+                    val negotiateJob = launch { negotiate() }
+                    val publishJob = async { requestAddTrack() }
+
+                    negotiateJob.join()
+                    return@coroutineScope publishJob.await()
+                }
+            } else {
+                // legacy path.
+                trackInfo = requestAddTrack()
+                if (trackInfo != null) {
+                    if (options is VideoTrackPublishOptions) {
+                        // server might not support the codec the client has requested, in that case, fallback
+                        // to a supported codec
+                        val primaryCodecMime = trackInfo.codecsList.firstOrNull()?.mimeType
+
+                        if (primaryCodecMime != null) {
+                            val updatedCodec = primaryCodecMime.mimeTypeToVideoCodec()
+                            if (updatedCodec != null && updatedCodec != options.videoCodec) {
+                                GxLog.d { "falling back to server selected codec: $updatedCodec" }
+                                options = options.copy(videoCodec = updatedCodec)
+
+                                // recompute encodings since bitrates/etc could have changed
+                                val videoTrack = track as LocalVideoTrack
+
+                                encodings = computeVideoEncodings(videoTrack.options.isScreencast, videoTrack.dimensions, options)
+                                encodings // encodings is used in negotiate, this suppresses unused lint
+                            }
+                        }
+                    }
+
+                    negotiate()
+                }
+            }
+
+            if (trackInfo != null) {
+                publication = LocalTrackPublication(
+                    info = trackInfo,
+                    track = track,
+                    participant = this,
+                    options = options,
+                )
+                addTrackPublication(publication)
+                GxLog.v { "add track publication $publication" }
+
+                publishListener?.onPublishSuccess(publication)
+                internalListener?.onTrackPublished(publication, this)
+                eventBus.postEvent(ParticipantEvent.LocalTrackPublished(this, publication), scope)
+            }
+        } finally {
+            if (publication == null) {
+                // Negotiation can win the race against a failed or cancelled add track request.
+                // Without a publication there is no unpublish to stop the transceiver, so it
+                // would hold its sender and SDP m-section until the connection closes.
+                senderTransceiver?.let { createdTransceiver ->
+                    val canRestorePreviousTransceiver = engine.rollbackSenderTransceiver(
+                        senderTransceiver = createdTransceiver,
+                        stopTransceiver = track is LocalVideoTrack,
+                    )
+                    val transceiver = createdTransceiver.transceiver
+                    when (track) {
+                        is LocalVideoTrack -> {
+                            if (track.transceiver === transceiver) {
+                                track.transceiver = previousTrackTransceiver.takeIf { canRestorePreviousTransceiver }
+                            }
+                        }
+
+                        is LocalAudioTrack -> {
+                            if (track.transceiver === transceiver) {
+                                track.transceiver = previousTrackTransceiver.takeIf { canRestorePreviousTransceiver }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return publication
+    }
+
+    private fun computeVideoEncodings(
+        isScreenShare: Boolean,
+        dimensions: Track.Dimensions,
+        options: VideoTrackPublishOptions,
+    ): List<RtpParameters.Encoding> {
+        val (width, height) = dimensions
+        var originalEncoding = options.videoEncoding
+        val simulcast = options.simulcast
+        val scalabilityMode = options.scalabilityMode
+
+        if ((originalEncoding == null && !simulcast) || width == 0 || height == 0) {
+            return emptyList()
+        }
+
+        if (originalEncoding == null) {
+            originalEncoding = EncodingUtils.determineAppropriateEncoding(isScreenShare, width, height)
+            GxLog.d { "using video encoding: $originalEncoding" }
+        }
+
+        val encodings = mutableListOf<RtpParameters.Encoding>()
+
+        if (scalabilityMode != null && isSVCCodec(options.videoCodec)) {
+            val rtpEncoding = originalEncoding.toRtpEncoding()
+            rtpEncoding.scalabilityMode = scalabilityMode
+            encodings.add(rtpEncoding)
+            return encodings
+        } else if (simulcast) {
+            fun addEncoding(videoEncoding: VideoEncoding, scale: Double) {
+                if (scale < 1.0) {
+                    GxLog.w { "Discarding encoding with a scale down < 1.0: $scale." }
+                    return
+                }
+                if (scale == 1.0 && videoEncoding !== originalEncoding) {
+                    GxLog.w { "Discarding duplicate encoding with a scale down == 1.0: $scale." }
+                    return
+                }
+                if (encodings.size >= EncodingUtils.VIDEO_RIDS.size) {
+                    throw IllegalStateException("Attempting to add more encodings than we have rids for!")
+                }
+                // encodings is mutable, so this will grab next available rid
+                val rid = EncodingUtils.VIDEO_RIDS[encodings.size]
+                encodings.add(videoEncoding.toRtpEncoding(rid, scale))
+            }
+
+            val presets = options.simulcastLayers
+                ?: EncodingUtils.defaultSimulcastLayers(
+                    isScreenShare = isScreenShare,
+                    width = width,
+                    height = height,
+                    originalEncoding = originalEncoding,
+                )
+            if (presets.isEmpty()) {
+                GxLog.w { "Simulcast is enabled but an empty list was set for simulcastLayers!" }
+            }
+
+            // if resolution is high enough, we send both h and q res.
+            // otherwise only send h
+            val size = max(width, height)
+            val maxFps = originalEncoding.maxFps
+            fun calculateScaleDown(captureParam: VideoCaptureParameter): Double {
+                val targetSize = max(captureParam.width, captureParam.height)
+                return size / targetSize.toDouble()
+            }
+
+            // Add encodings from smallest to largest.
+            val orderedPresets = presets.sortedByDescending { calculateScaleDown(it.capture) }
+            val lowPreset = orderedPresets.getOrNull(0)
+            val midPreset = orderedPresets.getOrNull(1)
+
+            if (size >= 480 && lowPreset != null) {
+                val lowScale = calculateScaleDown(lowPreset.capture)
+                addEncoding(lowPreset.encoding.copy(maxFps = min(lowPreset.encoding.maxFps, maxFps)), lowScale)
+            }
+            if (size >= 960 && midPreset != null) {
+                val midScale = calculateScaleDown(midPreset.capture)
+                addEncoding(midPreset.encoding.copy(maxFps = min(midPreset.encoding.maxFps, maxFps)), midScale)
+            }
+            addEncoding(originalEncoding, 1.0)
+        } else {
+            encodings.add(originalEncoding.toRtpEncoding())
+        }
+
+        // Make largest size at front. addTransceiver seems to fail if ordered from smallest to largest.
+        encodings.reverse()
+        return encodings
+    }
+
+    private fun computeTrackBackupOptionsAndEncodings(
+        track: LocalVideoTrack,
+        videoCodec: VideoCodec,
+        options: VideoTrackPublishOptions,
+    ): Pair<VideoTrackPublishOptions, List<RtpParameters.Encoding>>? {
+        if (!options.hasBackupCodec()) {
+            return null
+        }
+
+        if (videoCodec.codecName != options.backupCodec?.codec) {
+            GxLog.w { "Server requested different codec than specified backup. server: $videoCodec, specified: ${options.backupCodec?.codec}" }
+        }
+
+        val backupOptions = options.copy(
+            videoCodec = videoCodec.codecName,
+            videoEncoding = options.backupCodec!!.encoding,
+        )
+        val backupEncodings = computeVideoEncodings(track.options.isScreencast, track.dimensions, backupOptions)
+        return backupOptions to backupEncodings
+    }
+
+    /**
+     * Control who can subscribe to LocalParticipant's published tracks.
+     *
+     * By default, all participants can subscribe. This allows fine-grained control over
+     * who is able to subscribe at a participant and track level.
+     *
+     * Note: if access is given at a track-level (i.e. both [allParticipantsAllowed] and
+     * [ParticipantTrackPermission.allTracksAllowed] are false), any newer published tracks
+     * will not grant permissions to any participants and will require a subsequent
+     * permissions update to allow subscription.
+     *
+     * @param allParticipantsAllowed Allows all participants to subscribe all tracks.
+     *  Takes precedence over [participantTrackPermissions] if set to true.
+     *  By default this is set to true.
+     * @param participantTrackPermissions Full list of individual permissions per
+     *  participant/track. Any omitted participants will not receive any permissions.
+     */
+    fun setTrackSubscriptionPermissions(
+        allParticipantsAllowed: Boolean,
+        participantTrackPermissions: List<ParticipantTrackPermission> = emptyList(),
+    ) {
+        engine.updateSubscriptionPermissions(allParticipantsAllowed, participantTrackPermissions)
+    }
+
+    /**
+     * Unpublish a track.
+     *
+     * @param stopOnUnpublish if true, stops the track after unpublishing the track. Defaults to true.
+     */
+    fun unpublishTrack(track: Track, stopOnUnpublish: Boolean = true) {
+        val publication = localTrackPublications.firstOrNull { it.track == track }
+        if (publication === null) {
+            GxLog.d { "this track was never published." }
+            return
+        }
+
+        val publicationJob = jobs[publication]
+        if (publicationJob != null) {
+            publicationJob.cancel()
+            jobs.remove(publication)
+        }
+
+        val sid = publication.sid
+        trackPublications = trackPublications.toMutableMap().apply { remove(sid) }
+
+        if (engine.connectionState == ConnectionState.CONNECTED) {
+            engine.removeTrack(track.rtcTrack)
+
+            // Each publish creates a new transceiver, plus one per backup codec. Removing the
+            // track from its sender doesn't release them, so they would otherwise be retained
+            // until the connection closes. Stopping them releases the native resources and frees
+            // the SDP m-sections for reuse. Limited to video, where this leak is significant.
+            if (track is LocalVideoTrack) {
+                engine.stopTransceivers(listOfNotNull(track.transceiver) + track.simulcastTransceivers)
+                track.transceiver = null
+                track.clearSimulcastCodecs()
+            }
+        }
+        if (stopOnUnpublish) {
+            track.stop()
+        }
+        internalListener?.onTrackUnpublished(publication, this)
+        eventBus.postEvent(ParticipantEvent.LocalTrackUnpublished(this, publication), scope)
+    }
+
+    /**
+     * Publish a new data payload to the room. Data will be forwarded to each participant in the room.
+     * Each payload must not exceed 65535 bytes (64KB - 1) in size.
+     *
+     * @param data payload to send
+     * @param reliability for delivery guarantee, use RELIABLE. for fastest delivery without guarantee, use LOSSY
+     * @param topic the topic under which the message was published
+     * @param identities list of participant identities to deliver the payload, null to deliver to everyone
+     *
+     * @return A [Result] that succeeds if the publish succeeded, or a failure containing the exception.
+     */
+    @Suppress("unused")
+    @CheckResult
+    suspend fun publishData(
+        data: ByteArray,
+        reliability: DataPublishReliability = DataPublishReliability.RELIABLE,
+        topic: String? = null,
+        identities: List<Identity>? = null,
+    ): Result<Unit> {
+        val kind = when (reliability) {
+            DataPublishReliability.RELIABLE -> DataPacket.Kind.RELIABLE
+            DataPublishReliability.LOSSY -> DataPacket.Kind.LOSSY
+        }
+        val packetBuilder = GravixcloudModels.UserPacket.newBuilder().apply {
+            payload = ByteString.copyFrom(data)
+            participantSid = sid.value
+            if (topic != null) {
+                setTopic(topic)
+            }
+            if (identities != null) {
+                addAllDestinationIdentities(identities.map { it.value })
+            }
+        }
+        val dataPacket = DataPacket.newBuilder()
+            .setUser(packetBuilder)
+            .setKind(kind)
+            .build()
+
+        return engine.sendData(dataPacket)
+    }
+
+    /**
+     * This suspend function allows you to publish DTMF (Dual-Tone Multi-Frequency)
+     * signals within a Gravix room. The `publishDtmf` function constructs a
+     * SipDTMF message using the provided code and digit, then encapsulates it
+     * in a DataPacket before sending it via the engine.
+     *
+     * @param code an integer representing the DTMF signal code
+     * @param digit the string representing the DTMF digit (e.g., "1", "#", "*")
+     *
+     * @return A [Result] that succeeds if the publish succeeded, or a failure containing the exception.
+     */
+
+    @Suppress("unused")
+    @CheckResult
+    suspend fun publishDtmf(
+        code: Int,
+        digit: String,
+    ): Result<Unit> {
+        val sipDTMF = GravixcloudModels.SipDTMF.newBuilder().setCode(code)
+            .setDigit(digit)
+            .build()
+
+        val dataPacket = GravixcloudModels.DataPacket.newBuilder()
+            .setSipDtmf(sipDTMF)
+            .setKind(GravixcloudModels.DataPacket.Kind.RELIABLE)
+            .build()
+
+        return engine.sendData(dataPacket)
+    }
+
+    override fun registerRpcMethod(method: String, handler: RpcHandler) {
+        rpcServerManager.registerRpcMethod(method, handler)
+    }
+
+    /**
+     * Unregisters a previously registered RPC method.
+     *
+     * @param method The name of the RPC method to unregister
+     */
+    override fun unregisterRpcMethod(method: String) {
+        rpcServerManager.unregisterRpcMethod(method)
+    }
+
+    internal fun handleDataPacket(packet: DataPacket) {
+        when {
+            // v1 RPC request
+            packet.hasRpcRequest() -> {
+                val rpcRequest = packet.rpcRequest
+                scope.launch {
+                    rpcServerManager.handleIncomingRpcRequest(
+                        callerIdentity = Identity(packet.participantIdentity),
+                        rpcRequest = rpcRequest,
+                    )
+                }
+            }
+
+            packet.hasRpcResponse() -> {
+                val rpcResponse = packet.rpcResponse
+                if (rpcResponse.hasError()) {
+                    rpcClientManager.handleIncomingRpcResponseFailure(
+                        rpcResponse.requestId,
+                        RpcError.fromProto(rpcResponse.error),
+                    )
+                } else {
+                    // v1 RPC response
+                    rpcClientManager.handleIncomingRpcResponseSuccess(
+                        rpcResponse.requestId,
+                        if (rpcResponse.hasPayload()) rpcResponse.payload else "",
+                    )
+                }
+            }
+
+            packet.hasRpcAck() -> {
+                rpcClientManager.handleIncomingRpcAck(packet.rpcAck.requestId)
+            }
+        }
+    }
+
+    override suspend fun performRpc(
+        destinationIdentity: Identity,
+        method: String,
+        payload: String,
+        responseTimeout: Duration,
+        maxRoundTripLatency: Duration,
+    ): String = rpcClientManager.performRpc(destinationIdentity, method, payload, responseTimeout, maxRoundTripLatency)
+
+    internal fun handleParticipantDisconnect(identity: Identity) {
+        rpcClientManager.handleParticipantDisconnect(identity)
+    }
+
+    /**
+     * @suppress
+     */
+    @VisibleForTesting
+    override fun updateFromInfo(info: GravixcloudModels.ParticipantInfo) {
+        super.updateFromInfo(info)
+
+        // detect tracks that have mute status mismatched on server
+        for (ti in info.tracksList) {
+            val publication = this.trackPublications[ti.sid] as? LocalTrackPublication ?: continue
+            val localMuted = publication.muted
+            if (ti.muted != localMuted) {
+                engine.updateMuteStatus(sid.value, localMuted)
+            }
+        }
+    }
+
+    /**
+     * Updates the metadata of the local participant.  Changes will not be reflected until the
+     * server responds confirming the update.
+     * Note: this requires `CanUpdateOwnMetadata` permission encoded in the token.
+     * @param metadata
+     */
+    fun updateMetadata(metadata: String) {
+        this.engine.client.sendUpdateLocalMetadata(metadata, name)
+    }
+
+    /**
+     * Updates the name of the local participant. Changes will not be reflected until the
+     * server responds confirming the update.
+     * Note: this requires `CanUpdateOwnMetadata` permission encoded in the token.
+     * @param name
+     */
+    fun updateName(name: String) {
+        this.engine.client.sendUpdateLocalMetadata(metadata, name)
+    }
+
+    /**
+     * Set or update participant attributes. It will make updates only to keys that
+     * are present in [attributes], and will not override others.
+     *
+     * To delete a value, set the value to an empty string.
+     *
+     * Note: this requires `canUpdateOwnMetadata` permission.
+     * @param attributes attributes to update
+     */
+    fun updateAttributes(attributes: Map<String, String>) {
+        this.engine.client.sendUpdateLocalMetadata(metadata, name, attributes)
+    }
+
+    internal fun onRemoteMuteChanged(trackSid: String, muted: Boolean) {
+        val pub = trackPublications[trackSid]
+        pub?.muted = muted
+    }
+
+    internal fun handleSubscribedQualityUpdate(subscribedQualityUpdate: GravixcloudRtc.SubscribedQualityUpdate) {
+        if (!dynacast) {
+            return
+        }
+
+        val trackSid = subscribedQualityUpdate.trackSid
+        val subscribedCodecs = subscribedQualityUpdate.subscribedCodecsList
+        val qualities = subscribedQualityUpdate.subscribedQualitiesList
+        val pub = trackPublications[trackSid] as? LocalTrackPublication ?: return
+        val track = pub.track as? LocalVideoTrack ?: return
+        val options = pub.options as? VideoTrackPublishOptions ?: return
+
+        if (subscribedCodecs.isNotEmpty()) {
+            val newCodecs = track.setPublishingCodecs(subscribedCodecs)
+            for (codec in newCodecs) {
+                if (isBackupCodec(codec.codecName)) {
+                    GxLog.d { "publish $codec for $trackSid" }
+                    publishAdditionalCodecForTrack(track, codec, options)
+                }
+            }
+        }
+        if (qualities.isNotEmpty()) {
+            track.setPublishingLayers(qualities)
+        }
+    }
+
+    private fun publishAdditionalCodecForTrack(track: LocalVideoTrack, codec: VideoCodec, options: VideoTrackPublishOptions) {
+        val existingPublication = trackPublications[track.sid] ?: run {
+            GxLog.w { "attempting to publish additional codec for non-published track?!" }
+            return
+        }
+
+        val result = computeTrackBackupOptionsAndEncodings(track, codec, options) ?: run {
+            GxLog.i { "backup codec has been disabled, ignoring request to add additional codec for track" }
+            return
+        }
+        val (newOptions, newEncodings) = result
+        // A duplicate SubscribedQualityUpdate can request a codec that is already being
+        // published (or mid-publish, before the sender is attached). Treat it as a no-op
+        // instead of throwing, so a repeated update doesn't crash the session.
+        val simulcastTrack = track.addSimulcastTrack(codec, newEncodings) ?: return
+
+        val transceiverInit = RtpTransceiverInit(
+            RtpTransceiver.RtpTransceiverDirection.SEND_ONLY,
+            listOf(this.sid.value),
+            newEncodings,
+        )
+
+        scope.launch {
+            val transceiver = engine.createSenderTransceiver(track.rtcTrack, transceiverInit)?.transceiver
+            if (transceiver == null) {
+                GxLog.w { "couldn't create new transceiver! $codec" }
+                return@launch
+            }
+            simulcastTrack.transceiver = transceiver
+            val trackRequest = AddTrackRequest.newBuilder().apply {
+                sid = existingPublication.sid
+                muted = !track.enabled
+                source = existingPublication.source.toProto()
+                addSimulcastCodecs(
+                    with(SimulcastCodec.newBuilder()) {
+                        this@with.codec = codec.codecName
+                        this@with.cid = transceiver.sender.id()
+                        build()
+                    },
+                )
+                addAllLayers(
+                    EncodingUtils.videoLayersFromEncodings(
+                        track.dimensions.width,
+                        track.dimensions.height,
+                        newEncodings,
+                        isSVCCodec(codec.codecName),
+                    ),
+                )
+            }
+            val negotiateJob = launch {
+                transceiver.sortVideoCodecPreferences(newOptions.videoCodec, capabilitiesGetter)
+                simulcastTrack.sender = transceiver.sender
+
+                // The backup codec has its own sender, so it needs the same degradation
+                // preference as the primary applied explicitly. Resolve the source the same
+                // way the primary publish did, rather than reading it back off the
+                // publication, so the two encoders can't disagree.
+                transceiver.applyDegradationPreference(
+                    newOptions.degradationPreference,
+                    resolveVideoTrackSource(track, newOptions),
+                )
+
+                engine.negotiatePublisher()
+            }
+            val publishJob = async {
+                engine.addTrack(
+                    cid = simulcastTrack.rtcTrack.id(),
+                    name = existingPublication.name,
+                    kind = existingPublication.kind.toProto(),
+                    stream = options.stream,
+                    builder = trackRequest,
+                )
+            }
+            negotiateJob.join()
+            try {
+                val trackInfo = publishJob.await()
+                GxLog.d { "published $codec for track ${track.sid}, $trackInfo" }
+            } catch (e: Exception) {
+                e.rethrowIfCancellationSignal()
+                GxLog.w(e) { "exception when publishing $codec for track ${track.sid}" }
+            }
+        }
+    }
+
+    internal fun handleLocalTrackUnpublished(unpublishedResponse: GravixcloudRtc.TrackUnpublishedResponse) {
+        val pub = trackPublications[unpublishedResponse.trackSid]
+        val track = pub?.track
+        if (track == null) {
+            GxLog.w { "Received unpublished track response for unknown or non-published track: ${unpublishedResponse.trackSid}" }
+            return
+        }
+
+        unpublishTrack(track)
+    }
+
+    internal fun prepareForFullReconnect() {
+        val pubs = localTrackPublications.toList() // creates a copy, so is safe from the following removal.
+
+        // Only set the first time we start a full reconnect.
+        if (republishes == null) {
+            republishes = pubs
+        }
+
+        trackPublications = trackPublications.toMutableMap().apply { clear() }
+
+        for (publication in pubs) {
+            internalListener?.onTrackUnpublished(publication, this)
+            eventBus.postEvent(ParticipantEvent.LocalTrackUnpublished(this, publication), scope)
+        }
+    }
+
+    internal suspend fun republishTracks() {
+        val publish = republishes?.toList() ?: emptyList()
+        republishes = null
+
+        for (pub in publish) {
+            val track = pub.track ?: continue
+            unpublishTrack(track, false)
+            // Cannot publish muted tracks.
+            if (!pub.muted) {
+                val success = when (track) {
+                    is LocalAudioTrack -> publishAudioTrack(track, pub.options as AudioTrackPublishOptions, null)
+                    is LocalVideoTrack -> publishVideoTrack(track, pub.options as VideoTrackPublishOptions, null)
+                    else -> throw IllegalStateException("LocalParticipant has a non local track publish?")
+                }
+                if (!success) {
+                    track.stop()
+                }
+            }
+        }
+    }
+
+    internal fun onLocalTrackSubscribed(publication: LocalTrackPublication) {
+        if (!trackPublications.containsKey(publication.sid)) {
+            GxLog.w { "Could not find local track publication for subscribed event " }
+            return
+        }
+
+        eventBus.postEvent(ParticipantEvent.LocalTrackSubscribed(this, publication), scope)
+    }
+
+    internal fun setEnabledPublishCodecs(codecs: List<Codec>) {
+        synchronized(enabledPublishVideoCodecs) {
+            enabledPublishVideoCodecs.clear()
+            enabledPublishVideoCodecs.addAll(
+                codecs.filter { codec ->
+                    codec.mime.split('/')
+                        .takeIf { it.isNotEmpty() }
+                        ?.get(0)
+                        ?.lowercase() == "video"
+                },
+            )
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun cleanup() {
+        for (pub in trackPublications.values) {
+            val track = pub.track
+
+            if (track != null) {
+                track.stop()
+                unpublishTrack(track, stopOnUnpublish = false)
+
+                // We have the original track object reference, meaning we own it. Dispose here.
+                try {
+                    track.dispose()
+                    if (track === defaultAudioTrack) {
+                        defaultAudioTrack = null
+                    } else if (track === defaultVideoTrack) {
+                        defaultVideoTrack = null
+                    }
+                } catch (e: Exception) {
+                    GxLog.d(e) { "Exception thrown when cleaning up local participant track $pub:" }
+                }
+            }
+        }
+
+        // Dispose tracks that were saved for republishing but never got republished.
+        // This happens when reconnection fails after prepareForFullReconnect() was called.
+        val republishesToDispose = republishes?.toList() ?: emptyList()
+        for (pub in republishesToDispose) {
+            val track = pub.track
+            if (track != null) {
+                try {
+                    track.stop()
+                } catch (e: Exception) {
+                    GxLog.d(e) { "Exception stopping republish track:" }
+                }
+
+                try {
+                    track.dispose()
+                } catch (e: Exception) {
+                    GxLog.d(e) { "Exception disposing republish track:" }
+                }
+            }
+        }
+        republishes = null
+
+        try {
+            defaultAudioTrack?.dispose()
+        } catch (_: Exception) {
+            // Possible double dispose, ignore.
+        }
+        try {
+            defaultVideoTrack?.dispose()
+        } catch (_: Exception) {
+            // Possible double dispose, ignore.
+        }
+        defaultAudioTrack = null
+        defaultVideoTrack = null
+    }
+
+    /**
+     * @suppress
+     */
+    override fun dispose() {
+        cleanup()
+        enabledPublishVideoCodecs.clear()
+        clientProtocol = ClientProtocolVersion.DEFAULT.value
+        super.dispose()
+    }
+
+    interface PublishListener {
+        fun onPublishSuccess(publication: TrackPublication) {}
+        fun onPublishFailure(exception: Exception) {}
+    }
+
+    @AssistedFactory
+    interface Factory {
+        fun create(dynacast: Boolean): LocalParticipant
+    }
+}
+
+internal fun LocalParticipant.publishTracksInfo(): List<GravixcloudRtc.TrackPublishedResponse> {
+    return trackPublications.values.mapNotNull { trackPub ->
+        val track = trackPub.track ?: return@mapNotNull null
+
+        GravixcloudRtc.TrackPublishedResponse.newBuilder()
+            .setCid(track.rtcTrack.id())
+            .setTrack(trackPub.trackInfo)
+            .build()
+    }
+}
+
+interface TrackPublishOptions {
+    /**
+     * The name of the track.
+     */
+    val name: String?
+
+    /**
+     * The source of a track, camera, microphone or screen.
+     */
+    val source: Track.Source?
+
+    /**
+     * The stream name for the track. Audio and video tracks with the same stream
+     * name will be placed in the same `MediaStream` and offer better synchronization.
+     *
+     * By default, camera and microphone will be placed in the same stream.
+     */
+    val stream: String?
+}
+
+abstract class BaseVideoTrackPublishOptions {
+    abstract val videoEncoding: VideoEncoding?
+    abstract val simulcast: Boolean
+
+    /**
+     * The video codec to use if available.
+     *
+     * Defaults to VP8.
+     *
+     * @see [VideoCodec]
+     */
+    abstract val videoCodec: String
+
+    /**
+     * scalability mode for svc codecs, defaults to 'L3T3'.
+     * for svc codecs, simulcast is disabled.
+     */
+    abstract val scalabilityMode: String?
+
+    /**
+     * Multi-codec Simulcast
+     *
+     * Codecs such as VP9 and AV1 are not supported by all clients. When backupCodec is
+     * set, when an incompatible client attempts to subscribe to the track, Gravix
+     * will automatically publish a secondary track encoded with the backup codec.
+     */
+    abstract val backupCodec: BackupVideoCodec?
+
+    /**
+     * Controls how the encoder trades off between resolution and framerate
+     * when bandwidth is constrained.
+     *
+     * - MAINTAIN_FRAMERATE: Prioritizes framerate, reduces resolution if needed
+     * - MAINTAIN_RESOLUTION: Prioritizes resolution, drops frames if needed
+     * - BALANCED: Balances between both
+     *
+     * If not set (null), the SDK uses defaults based on track source:
+     * - Camera: MAINTAIN_FRAMERATE (smoother video for real-time communication)
+     * - Screen share: MAINTAIN_RESOLUTION (clarity is critical for text/UI)
+     * - Other/unknown: BALANCED
+     *
+     * Note that a preference is always applied to video senders, so leaving this null
+     * selects the source-based default above rather than deferring to WebRTC's own
+     * implicit choice.
+     */
+    abstract val degradationPreference: RtpParameters.DegradationPreference?
+
+    /**
+     * Up to two additional simulcast layers to publish in addition to the original
+     * Track. Layers should be ordered from smallest to largest. Layers beyond the
+     * first two will be ignored. Any layers that have larger resolutions than the
+     * source resolution will also be ignored.
+     *
+     * When set to null, it defaults to H180 and H360.
+     */
+    abstract val simulcastLayers: List<VideoPreset>?
+}
+
+// Remember when adding any defaults to add it in the copy constructor of VideoTrackPublishOptions.
+data class VideoTrackPublishDefaults(
+    override val videoEncoding: VideoEncoding? = null,
+    override val simulcast: Boolean = true,
+    override val videoCodec: String = VideoCodec.VP8.codecName,
+    override val scalabilityMode: String? = null,
+    override val backupCodec: BackupVideoCodec? = null,
+    override val degradationPreference: RtpParameters.DegradationPreference? = null,
+    override val simulcastLayers: List<VideoPreset>? = null,
+) : BaseVideoTrackPublishOptions()
+
+data class VideoTrackPublishOptions(
+    override val name: String? = null,
+    override val videoEncoding: VideoEncoding? = null,
+    override val simulcast: Boolean = true,
+    override val videoCodec: String = VideoCodec.VP8.codecName,
+    override val scalabilityMode: String? = null,
+    override val backupCodec: BackupVideoCodec? = null,
+    override val source: Track.Source? = null,
+    override val stream: String? = null,
+    override val degradationPreference: RtpParameters.DegradationPreference? = null,
+    override val simulcastLayers: List<VideoPreset>? = null,
+) : BaseVideoTrackPublishOptions(), TrackPublishOptions {
+    constructor(
+        name: String? = null,
+        base: BaseVideoTrackPublishOptions,
+        source: Track.Source? = null,
+        stream: String? = null,
+    ) : this(
+        name = name,
+        videoEncoding = base.videoEncoding,
+        simulcast = base.simulcast,
+        videoCodec = base.videoCodec,
+        scalabilityMode = base.scalabilityMode,
+        backupCodec = base.backupCodec,
+        source = source,
+        stream = stream,
+        degradationPreference = base.degradationPreference,
+        simulcastLayers = base.simulcastLayers,
+    )
+
+    fun createBackupOptions(): VideoTrackPublishOptions? {
+        return if (hasBackupCodec()) {
+            copy(
+                videoCodec = backupCodec!!.codec,
+                videoEncoding = backupCodec.encoding,
+            )
+        } else {
+            null
+        }
+    }
+}
+
+data class BackupVideoCodec(
+    val codec: String = "vp8",
+    val encoding: VideoEncoding? = null,
+    val simulcast: Boolean = true,
+)
+
+abstract class BaseAudioTrackPublishOptions {
+    /**
+     * The target audioBitrate to use.
+     */
+    abstract val audioBitrate: Int?
+
+    /**
+     * dtx (Discontinuous Transmission of audio), enabled by default for mono tracks.
+     */
+    abstract val dtx: Boolean
+
+    /**
+     * red (Redundant Audio Data), enabled by default for mono tracks.
+     */
+    abstract val red: Boolean
+
+    /**
+     * preconnect buffer, starts the audio track and buffers it prior to connection,
+     * in order to send it to agents that connect afterwards. Improves perceived
+     * connection time.
+     */
+    abstract val preconnect: Boolean
+}
+
+enum class AudioPresets(
+    val maxBitrate: Int,
+) {
+    TELEPHONE(12_000),
+    SPEECH(24_000),
+    MUSIC(48_000),
+    MUSIC_STEREO(64_000),
+    MUSIC_HIGH_QUALITY(96_000),
+    MUSIC_HIGH_QUALITY_STEREO(128_000)
+}
+
+// Remember when adding any defaults to add it in the copy constructor of VideoTrackPublishOptions.
+/**
+ * Default options for publishing an audio track.
+ */
+data class AudioTrackPublishDefaults(
+    override val audioBitrate: Int? = AudioPresets.MUSIC.maxBitrate,
+    override val dtx: Boolean = true,
+    override val red: Boolean = true,
+    override val preconnect: Boolean = false,
+) : BaseAudioTrackPublishOptions()
+
+/**
+ * Options for publishing an audio track.
+ */
+data class AudioTrackPublishOptions(
+    override val name: String? = null,
+    override val audioBitrate: Int? = null,
+    override val dtx: Boolean = true,
+    override val red: Boolean = true,
+    override val source: Track.Source? = null,
+    override val stream: String? = null,
+    override val preconnect: Boolean = false,
+) : BaseAudioTrackPublishOptions(), TrackPublishOptions {
+    constructor(
+        name: String? = null,
+        base: BaseAudioTrackPublishOptions,
+        source: Track.Source? = null,
+        stream: String? = null,
+    ) : this(
+        name = name,
+        audioBitrate = base.audioBitrate,
+        dtx = base.dtx,
+        red = base.red,
+        source = source,
+        stream = stream,
+    )
+
+    internal fun getFeaturesList(): Set<AudioTrackFeature> {
+        val features = mutableSetOf<AudioTrackFeature>()
+        if (!dtx) {
+            features.add(AudioTrackFeature.TF_NO_DTX)
+        }
+        if (preconnect) {
+            features.add(AudioTrackFeature.TF_PRECONNECT_BUFFER)
+        }
+        return features
+    }
+}
+
+data class ParticipantTrackPermission(
+    /**
+     * The participant identity this permission applies to.
+     * You can either provide this or `participantSid`
+     */
+    val participantIdentity: String? = null,
+    /**
+     * The participant id this permission applies to.
+     */
+    val participantSid: String? = null,
+    /**
+     * If set to true, the target participant can subscribe to all tracks from the local participant.
+     *
+     * Takes precedence over [allowedTrackSids].
+     */
+    val allTracksAllowed: Boolean = false,
+    /**
+     * The list of track ids that the target participant can subscribe to.
+     */
+    val allowedTrackSids: List<String> = emptyList(),
+) {
+    init {
+        if (participantIdentity == null && participantSid == null) {
+            throw IllegalArgumentException("Either identity or sid must be provided.")
+        }
+    }
+
+    internal fun toProto(): GravixcloudRtc.TrackPermission {
+        return GravixcloudRtc.TrackPermission.newBuilder()
+            .setParticipantIdentity(participantIdentity)
+            .setParticipantSid(participantSid)
+            .setAllTracks(allTracksAllowed)
+            .addAllTrackSids(allowedTrackSids)
+            .build()
+    }
+}
+
+internal fun VideoTrackPublishOptions.hasBackupCodec(): Boolean {
+    return backupCodec?.codec != null && videoCodec != backupCodec.codec
+}
+
+private val backupCodecs = listOf(VideoCodec.VP8.codecName, VideoCodec.H264.codecName)
+private fun isBackupCodec(codecName: String) = backupCodecs.contains(codecName)
+
+/**
+ * Resolves the [Track.Source] a video track is published under: the explicitly requested
+ * source if any, otherwise inferred from whether the track is backed by a screencast source.
+ */
+private fun resolveVideoTrackSource(track: LocalVideoTrack, options: VideoTrackPublishOptions): Track.Source {
+    return options.source ?: if (track.options.isScreencast) {
+        Track.Source.SCREEN_SHARE
+    } else {
+        Track.Source.CAMERA
+    }
+}
+
+/**
+ * Returns the appropriate degradation preference for a video track based on its source.
+ *
+ * - Camera: MAINTAIN_FRAMERATE (smoother video for real-time communication)
+ * - Screen share: MAINTAIN_RESOLUTION (clarity is critical for reading text/UI)
+ * - Other/unknown: BALANCED
+ *
+ * Any other source means the application declined to declare a motion-vs-detail intent,
+ * so this falls back to BALANCED, the preference the WebRTC spec mandates as the default.
+ * This deliberately does not defer to libwebrtc's implicit derivation, which keys off the
+ * native source's is_screencast flag: custom feeds report is_screencast = false regardless
+ * of content (see VideoFrameCapturer/BitmapFrameCapturer), so deferring would resolve to
+ * MAINTAIN_FRAMERATE for every custom feed rather than recovering any real intent.
+ *
+ * This is the intended behavior across Gravix client SDKs; client-sdk-js
+ * (`getDefaultDegradationPreference` in publishUtils.ts) and the Rust SDK
+ * (`get_default_degradation_preference` in room/options.rs) use the same mapping.
+ */
+private fun getDefaultDegradationPreference(source: Track.Source): RtpParameters.DegradationPreference {
+    return when (source) {
+        Track.Source.CAMERA -> RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
+        Track.Source.SCREEN_SHARE -> RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
+        else -> RtpParameters.DegradationPreference.BALANCED
+    }
+}
+
+/**
+ * Applies [preference] to this transceiver's sender, falling back to the
+ * source-based default from [getDefaultDegradationPreference].
+ *
+ * Degradation preference is a property of the sender, not of the track, so every
+ * sender feeding from a track needs it applied separately. In particular the backup
+ * codec gets its own transceiver over the same rtc track, and would otherwise let
+ * libwebrtc resolve a preference implicitly from the native source's is_screencast
+ * flag, diverging from the primary encoder.
+ */
+private fun RtpTransceiver.applyDegradationPreference(
+    preference: RtpParameters.DegradationPreference?,
+    source: Track.Source,
+) {
+    val rtpParameters = sender.parameters
+    rtpParameters.degradationPreference = preference ?: getDefaultDegradationPreference(source)
+    sender.parameters = rtpParameters
+}
+
+/**
+ * A handler that processes an RPC request and returns a string
+ * that will be sent back to the requester. The payload must
+ * be less than 15KB in size.
+ *
+ * Throwing an [RpcError] will send the error back to the requester.
+ *
+ * @see [LocalParticipant.registerRpcMethod]
+ */
+typealias RpcHandler = suspend (RpcInvocationData) -> String
+
+data class RpcInvocationData(
+    /**
+     *  A unique identifier for this RPC request
+     */
+    val requestId: String,
+    /**
+     * The identity of the RemoteParticipant who initiated the RPC call
+     */
+    val callerIdentity: Participant.Identity,
+    /**
+     * The data sent by the caller (as a string)
+     */
+    val payload: String,
+    /**
+     * The maximum time available to return a response
+     */
+    val responseTimeout: Duration,
+)

@@ -1,0 +1,93 @@
+plugins {
+    id 'com.android.library'
+    id 'kotlin-android'
+    id 'kotlin-parcelize'
+}
+
+def getDefaultUrl() {
+    return hasProperty('gravixSampleUrl') ? gravixSampleUrl : "ws://www.example.com"
+}
+
+def getDefaultToken() {
+    return hasProperty('gravixSampleToken') ? gravixSampleToken : ""
+}
+
+def getDefaultTokenServerId() {
+    return hasProperty('gravixSampleTokenServerId') ? gravixSampleTokenServerId : ""
+}
+
+// GRAVIX: base url of your own development token server (no hosted default)
+def getDefaultTokenServerUrl() {
+    return hasProperty('gravixSampleTokenServerUrl') ? gravixSampleTokenServerUrl : ""
+}
+
+final url = getDefaultUrl()
+final token = getDefaultToken()
+final tokenServerId = getDefaultTokenServerId()
+final tokenServerUrl = getDefaultTokenServerUrl()
+
+android {
+    namespace "com.gravixcloud.rtc.sample.common"
+    compileSdk androidSdk.compileVersion
+
+    defaultConfig {
+        minSdk androidSdk.minVersion
+        targetSdk androidSdk.targetVersion
+        consumerProguardFiles 'consumer-rules.pro'
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+
+            buildConfigField "String", "DEFAULT_URL", "\"$url\""
+            buildConfigField "String", "DEFAULT_TOKEN", "\"$token\""
+            buildConfigField "String", "DEFAULT_TOKEN_SERVER_ID", "\"$tokenServerId\""
+            buildConfigField "String", "DEFAULT_TOKEN_SERVER_URL", "\"$tokenServerUrl\""
+        }
+
+        debug {
+            buildConfigField "String", "DEFAULT_URL", "\"$url\""
+            buildConfigField "String", "DEFAULT_TOKEN", "\"$token\""
+            buildConfigField "String", "DEFAULT_TOKEN_SERVER_ID", "\"$tokenServerId\""
+            buildConfigField "String", "DEFAULT_TOKEN_SERVER_URL", "\"$tokenServerUrl\""
+        }
+    }
+    buildFeatures {
+        buildConfig = true
+    }
+    compileOptions {
+        sourceCompatibility java_version
+        targetCompatibility java_version
+    }
+    kotlinOptions {
+        jvmTarget = java_version
+    }
+}
+
+dependencies {
+
+    // If building the sample app outside the context of this repo, replace the following with:
+    // api "com.gravixcloud:gravix-rtc-android:<version>"
+    api project(":gravix-rtc-android-sdk")
+    api project(":gravix-rtc-android-camerax")
+
+    api libs.androidx.core.ktx
+    api libs.appcompat
+    api libs.material
+    api libs.coroutines.lib
+    api libs.androidx.lifecycle.runtime.ktx
+    api libs.androidx.lifecycle.viewmodel.ktx
+    api libs.androidx.lifecycle.common.java8
+    api libs.androidx.lifecycle.process
+    api libs.protobuf.javalite
+    api libs.androidx.preference.ktx
+    // debugImplementation because LeakCanary should only run in debug builds.
+    debugImplementation libs.leakcanary.android
+
+    testImplementation libs.junit
+    androidTestImplementation libs.androidx.test.core
+}

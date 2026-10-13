@@ -1,0 +1,189 @@
+# NOTICE — Gravix Cloud Android SDK (gravix-rtc-android)
+
+Copyright (c) 2026 Gravity Compile.
+
+This SDK is a modified version of the LiveKit Android SDK and is licensed, like it, under the
+Apache License, Version 2.0 (`LICENSE`, unchanged from upstream). Gravity Compile's additions are
+under the same license.
+
+## Third-party components
+
+### livekit / client-sdk-android (the whole tree, re-packaged as `com.gravixcloud.rtc`)
+Android client SDK for real-time audio/video rooms.
+- Project: https://github.com/livekit/client-sdk-android
+- Version: v2.28.2, plus upstream fixes #1010 and #1023 (cherry-picked from v2.29.0)
+- Copyright 2021-2026 LiveKit, Inc. (upstream NOTICE, reproduced verbatim below)
+- License: Apache-2.0 — https://www.apache.org/licenses/LICENSE-2.0
+- Notes: re-branded for white-label distribution by `tools/rebrand/rebrand.sh` (packages, module and
+  Maven names, public type names, log tags, runtime strings). Each derived source file keeps the
+  upstream copyright notice, followed by "Modifications Copyright 2026 Gravity Compile" and the
+  unchanged license header. Generic type names (`Room`, `Track`, `Participant`, …) are preserved to
+  keep upstream merges clean.
+
+### livekit / protocol (`protocol/`, `.proto` sources)
+Protobuf wire definitions compiled into the SDK (protobuf-javalite).
+- Project: https://github.com/livekit/protocol (commit 8381f218): a git submodule in the development repository;
+  the public source tree vendors `protocol/protobufs/` with the project's `LICENSE` and `NOTICE`, unmodified
+  (`protocol/VENDORED.md`)
+- Copyright LiveKit, Inc.
+- License: Apache-2.0 — https://www.apache.org/licenses/LICENSE-2.0
+- Notes: the submodule's `.proto` files are unmodified. The copies protoc compiles are rewritten at
+  build time (`gradle/gravix-proto-names.gradle`): file names `gravixcloud_*.proto`, `package
+  gravixcloud;`, Java classes `gravixcloud.Gravixcloud*`, upstream name removed from comments. Messages, fields and enum values are
+  unchanged and the binary encoding carries no package name, so the wire format is identical.
+
+### audioswitch (vendored as `com.gravixcloud.rtc.audioswitch`)
+Audio device enumeration and routing for Android.
+- Project: https://github.com/twilio/audioswitch, via the fork https://github.com/davidliu/audioswitch
+  at 039a35aefab7747c557242fa216c9ea11743b604 (version 1.2.0)
+- Copyright 2020 Twilio, inc.
+- License: Apache-2.0 — `third_party/audioswitch/LICENSE.txt`
+- Notes: package relocated, provenance header added to each file; details in
+  `third_party/audioswitch/README.md`.
+
+### Files under other licenses (inherited from upstream, headers kept)
+- `gravix-rtc-android-sdk/.../renderer/TextureViewRenderer.kt` — Copyright 2015 The WebRTC project
+  authors, BSD-style license.
+- `gravix-rtc-android-sdk/.../util/FlowDelegate.kt` — Copyright (c) 2021 Artur Artikov, MIT.
+- `gravix-rtc-android-sdk/.../coroutines/ReentrantMutex.kt` — public domain (Unlicense).
+- `gravix-rtc-android-sdk/.../util/GxLog.kt` — contains code Copyright 2017-2018 AJ Alt, Apache-2.0.
+- Code derived from shiguredo (Apache-2.0) and ggarber/sdpparser (MIT): see the upstream NOTICE below.
+
+### Runtime dependencies (not bundled; resolved from Maven Central)
+WebRTC `io.github.webrtc-sdk:android` (libwebrtc, BSD-style), OkHttp (Apache-2.0), protobuf-javalite
+(BSD-3-Clause), kotlinx (Apache-2.0), Dagger (Apache-2.0), jwtdecode (MIT), semver4j (MIT),
+android-jain-sip-ri (public domain / NIST), AndroidX (Apache-2.0).
+
+## Compliance note
+In the compiled SDK the upstream name appears only as attribution: in this file and in the copyright
+lines at the top of the derived source files (plus fork-maintenance notes under `tools/`, `doc/upstream/`
+and `CHANGELOG.md`). Checked on the published artifacts: no upstream-name string in the compiled
+classes, `lint.jar` or the javadoc jar; in the sources jar only the copyright lines. The deliberate exceptions are wire-protocol values that every SDK must share (see
+`tools/rebrand/README.md`): `lk.*` attribute keys and the E2EE key-derivation constants.
+
+################################################################################
+# Upstream NOTICE (livekit/client-sdk-android), reproduced verbatim
+################################################################################
+
+Copyright 2021 LiveKit, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+###################################################################################
+
+The following modifications follow Apache License 2.0 from shiguredo.
+
+https://github.com/livekit/client-sdk-android/commit/f6983a0749e86fa8b5d8633ac7d20459e0cec5ee
+
+Apache License 2.0
+
+Copyright 2017, Lyo Kato <lyo.kato at gmail.com> (Original Author)
+Copyright 2017-2021, Shiguredo Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+#####################################################################################
+
+The following modifications follow MIT License from https://github.com/ggarber/sdpparser
+
+https://github.com/livekit/client-sdk-android/commit/60ebdd5da1e81db2b1f7ad543105c9cdc058d471
+
+MIT License
+
+Copyright (c) 2023 Gustavo Garcia
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+#####################################################################################
+
+Parts of this source code come from the WebRTC project, following a BSD-style license
+
+https://webrtc.googlesource.com/src
+
+Copyright (c) 2011, The WebRTC project authors. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+  * Redistributions of source code must retain the above copyright
+    notice, this list of conditions and the following disclaimer.
+
+  * Redistributions in binary form must reproduce the above copyright
+    notice, this list of conditions and the following disclaimer in
+    the documentation and/or other materials provided with the
+    distribution.
+
+  * Neither the name of Google nor the names of its contributors may
+    be used to endorse or promote products derived from this software
+    without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+###################################################################################
+
+Parts of this source code come from JakeWharton/timber, following Apache License 2.0.
+
+https://github.com/JakeWharton/timber
+
+Apache License 2.0
+
+Copyright 2013 Jake Wharton
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.

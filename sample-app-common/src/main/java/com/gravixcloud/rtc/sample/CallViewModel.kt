@@ -1,0 +1,584 @@
+/*
+ * Copyright 2023-2026 LiveKit, Inc.
+ * Modifications Copyright 2026 Gravity Compile
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.gravixcloud.rtc.sample
+
+import android.annotation.SuppressLint
+import android.app.Application
+import android.content.Intent
+import android.media.projection.MediaProjectionManager
+import android.os.Build
+import androidx.annotation.OptIn
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.lifecycle.viewModelScope
+import com.gravixcloud.rtc.AudioOptions
+import com.gravixcloud.rtc.GravixRtc
+import com.gravixcloud.rtc.GravixRtcOverrides
+import com.gravixcloud.rtc.RoomOptions
+import com.gravixcloud.rtc.audio.AudioProcessorOptions
+import com.gravixcloud.rtc.audio.AudioSwitchHandler
+import com.gravixcloud.rtc.e2ee.E2EEOptions
+import com.gravixcloud.rtc.events.RoomEvent
+import com.gravixcloud.rtc.events.collect
+import com.gravixcloud.rtc.room.Room
+import com.gravixcloud.rtc.room.datastream.StreamTextOptions
+import com.gravixcloud.rtc.room.datastream.incoming.TextStreamReceiver
+import com.gravixcloud.rtc.room.participant.LocalParticipant
+import com.gravixcloud.rtc.room.participant.Participant
+import com.gravixcloud.rtc.room.participant.RemoteParticipant
+import com.gravixcloud.rtc.room.track.CameraPosition
+import com.gravixcloud.rtc.room.track.LocalScreencastVideoTrack
+import com.gravixcloud.rtc.room.track.LocalVideoTrack
+import com.gravixcloud.rtc.room.track.Track
+import com.gravixcloud.rtc.room.track.screencapture.ScreenCaptureParams
+import com.gravixcloud.rtc.room.track.video.CameraCapturerUtils
+import com.gravixcloud.rtc.rpc.RpcError
+import com.gravixcloud.rtc.sample.model.StressTest
+import com.gravixcloud.rtc.sample.model.TokenSourceArgs
+import com.gravixcloud.rtc.sample.service.ForegroundService
+import com.gravixcloud.rtc.token.ConfigurableTokenSource
+import com.gravixcloud.rtc.token.DevelopmentTokenServerOptions
+import com.gravixcloud.rtc.token.FixedTokenSource
+import com.gravixcloud.rtc.token.TokenRequestOptions
+import com.gravixcloud.rtc.token.TokenSource
+import com.gravixcloud.rtc.token.TokenSourceResponse
+import com.gravixcloud.rtc.token.cached
+import com.gravixcloud.rtc.util.GxLog
+import com.gravixcloud.rtc.util.flow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import org.webrtc.CameraXHelper
+
+@OptIn(ExperimentalCamera2Interop::class)
+class CallViewModel(
+    val tokenSourceArgs: TokenSourceArgs,
+    application: Application,
+    val e2ee: Boolean = false,
+    val e2eeKey: String? = "",
+    val audioProcessorOptions: AudioProcessorOptions? = null,
+    val stressTest: StressTest = StressTest.None,
+) : AndroidViewModel(application) {
+
+    private fun getE2EEOptions(): E2EEOptions? {
+        var e2eeOptions = if (e2ee && e2eeKey != null) {
+            E2EEOptions(sharedKey = e2eeKey)
+        } else {
+            null
+        }
+        return e2eeOptions
+    }
+
+    private fun getRoomOptions(): RoomOptions {
+        return RoomOptions(
+            adaptiveStream = true,
+            dynacast = true,
+            e2eeOptions = getE2EEOptions(),
+        )
+    }
+
+    val room = GravixRtc.create(
+        appContext = application,
+        options = getRoomOptions(),
+        overrides = GravixRtcOverrides(
+            audioOptions = AudioOptions(
+                audioProcessorOptions = audioProcessorOptions,
+            ),
+        ),
+    )
+
+    private var cameraProvider: CameraCapturerUtils.CameraProvider? = null
+    val audioHandler = room.audioHandler as AudioSwitchHandler
+
+    val participants = room::remoteParticipants.flow
+        .map { remoteParticipants ->
+            listOf<Participant>(room.localParticipant) +
+                remoteParticipants
+                    .keys
+                    .sortedBy { it.value }
+                    .mapNotNull { remoteParticipants[it] }
+        }
+
+    private val mutableError = MutableStateFlow<Throwable?>(null)
+    val error = mutableError.hide()
+
+    private val mutablePrimarySpeaker = MutableStateFlow<Participant?>(null)
+    val primarySpeaker: StateFlow<Participant?> = mutablePrimarySpeaker
+
+    val activeSpeakers = room::activeSpeakers.flow
+
+    private var localScreencastTrack: LocalScreencastVideoTrack? = null
+
+    // Controls
+    val micEnabled = room.localParticipant::isMicrophoneEnabled.flow
+    val cameraEnabled = room.localParticipant::isCameraEnabled.flow
+    val screenshareEnabled = room.localParticipant::isScreenShareEnabled.flow
+
+    private val mutableEnhancedNsEnabled = MutableLiveData(false)
+    val enhancedNsEnabled = mutableEnhancedNsEnabled.hide()
+
+    private val mutableEnableAudioProcessor = MutableLiveData(true)
+    val enableAudioProcessor = mutableEnableAudioProcessor.hide()
+
+    // Emits a string whenever a data message is received.
+    private val mutableDataReceived = MutableSharedFlow<String>()
+    val dataReceived = mutableDataReceived
+
+    // Whether other participants are allowed to subscribe to this participant's tracks.
+    private val mutablePermissionAllowed = MutableStateFlow(true)
+    val permissionAllowed = mutablePermissionAllowed.hide()
+
+    // RPC tester state. Lives on the ViewModel so it survives dialog dismiss/reopen.
+    private val mutableHandlers = MutableStateFlow<List<RpcHandlerState>>(emptyList())
+    val handlers: StateFlow<List<RpcHandlerState>> = mutableHandlers
+
+    /**
+     * The token source used to fetch connection details for the room.
+     *
+     * Created once and (for the development token server) wrapped with [cached], so
+     * reconnects reuse the same credentials until the token expires. Otherwise the
+     * development token server would issue new random values on every fetch when no
+     * explicit room name/participant identity is set, causing reconnects to join a
+     * different room.
+     */
+    private val tokenSource: TokenSource = when (tokenSourceArgs) {
+        is TokenSourceArgs.Literal -> TokenSource.fromLiteral(tokenSourceArgs.url, tokenSourceArgs.token)
+        is TokenSourceArgs.DevTokenServer -> TokenSource.fromDevelopmentTokenServer(
+            tokenSourceArgs.tokenServerId,
+            // GRAVIX: no hosted default; the sample asks for the base url
+            DevelopmentTokenServerOptions(baseUrl = tokenSourceArgs.tokenServerUrl.trimEnd('/')),
+        ).cached()
+    }
+
+    init {
+
+        CameraXHelper.createCameraProvider(ProcessLifecycleOwner.get()).let {
+            if (it.isSupported(application)) {
+                CameraCapturerUtils.registerCameraProvider(it)
+                cameraProvider = it
+            }
+        }
+
+        // Handling text streams
+        room.registerTextStreamHandler(
+            topic = "lk.chat",
+            handler = { receiver: TextStreamReceiver, identity: Participant.Identity ->
+                viewModelScope.launch {
+                    val message = receiver.readAll().joinToString(separator = "")
+                    mutableDataReceived.emit("$identity: $message")
+                }
+            },
+        )
+
+        viewModelScope.launch(Dispatchers.Default) {
+            // Collect any errors.
+            launch {
+                error.collect { GxLog.e(it) }
+            }
+
+            // Handle any changes in speakers.
+            launch {
+                combine(participants, activeSpeakers) { participants, speakers -> participants to speakers }
+                    .collect { (participantsList, speakers) ->
+                        handlePrimarySpeaker(
+                            participantsList,
+                            speakers,
+                            room,
+                        )
+                    }
+            }
+
+            // Handle room events.
+            launch {
+                room.events.collect {
+                    when (it) {
+                        is RoomEvent.FailedToConnect -> mutableError.value = it.error
+                        is RoomEvent.DataReceived -> {
+                            // Handling basic data packets.
+                            val identity = it.participant?.identity ?: "server"
+                            val message = it.data.toString(Charsets.UTF_8)
+                            mutableDataReceived.emit("$identity: $message")
+                        }
+
+                        else -> {
+                            GxLog.e { "Room event: $it" }
+                        }
+                    }
+                }
+            }
+
+            when (stressTest) {
+                is StressTest.SwitchRoom -> launch { stressTest.execute() }
+                is StressTest.None -> connectToRoom()
+            }
+        }
+
+        // Start a foreground service to keep the call from being interrupted if the
+        // app goes into the background.
+        val foregroundServiceIntent = Intent(application, ForegroundService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            application.startForegroundService(foregroundServiceIntent)
+        } else {
+            application.startService(foregroundServiceIntent)
+        }
+    }
+
+    private suspend fun collectTrackStats(event: RoomEvent.TrackSubscribed) {
+        val pub = event.publication
+        while (true) {
+            delay(10000)
+            if (pub.subscribed) {
+                val statsReport = pub.track?.getRTCStats() ?: continue
+                GxLog.e { "stats for ${pub.sid}:" }
+
+                for (entry in statsReport.statsMap) {
+                    GxLog.e { "${entry.key} = ${entry.value}" }
+                }
+            }
+        }
+    }
+
+    fun toggleEnhancedNs(enabled: Boolean? = null) {
+        if (enabled != null) {
+            mutableEnableAudioProcessor.postValue(enabled)
+            room.audioProcessingController.setBypassForCapturePostProcessing(!enabled)
+            return
+        }
+
+        if (room.audioProcessorIsEnabled) {
+            if (enableAudioProcessor.value == true) {
+                room.audioProcessingController.setBypassForCapturePostProcessing(true)
+                mutableEnableAudioProcessor.postValue(false)
+            } else {
+                room.audioProcessingController.setBypassForCapturePostProcessing(false)
+                mutableEnableAudioProcessor.postValue(true)
+            }
+        }
+    }
+
+    /**
+     * Fetches the connection details used to connect to the room from [tokenSource].
+     */
+    private suspend fun fetchConnectionDetails(): Result<TokenSourceResponse> = when (tokenSourceArgs) {
+        is TokenSourceArgs.Literal -> (tokenSource as FixedTokenSource).fetch()
+        is TokenSourceArgs.DevTokenServer -> (tokenSource as ConfigurableTokenSource).fetch(
+            TokenRequestOptions(
+                roomName = tokenSourceArgs.roomName,
+                participantName = tokenSourceArgs.participantName,
+                participantIdentity = tokenSourceArgs.participantIdentity,
+                agentName = tokenSourceArgs.agentName,
+            ),
+        )
+    }
+
+    private suspend fun connectToRoom() {
+        try {
+            room.e2eeOptions = getE2EEOptions()
+            val connectionDetails = fetchConnectionDetails().getOrThrow()
+            room.connect(
+                url = connectionDetails.serverUrl,
+                token = connectionDetails.participantToken,
+            )
+
+            mutableEnhancedNsEnabled.postValue(room.audioProcessorIsEnabled)
+            mutableEnableAudioProcessor.postValue(true)
+
+            // Create and publish audio/video tracks
+            val localParticipant = room.localParticipant
+            localParticipant.setMicrophoneEnabled(true)
+
+            localParticipant.setCameraEnabled(true)
+
+            // Update the speaker
+            handlePrimarySpeaker(emptyList(), emptyList(), room)
+        } catch (e: Throwable) {
+            mutableError.value = e
+        }
+    }
+
+    private fun handlePrimarySpeaker(participantsList: List<Participant>, speakers: List<Participant>, room: Room?) {
+        var speaker = mutablePrimarySpeaker.value
+
+        // If speaker is local participant (due to defaults),
+        // attempt to find another remote speaker to replace with.
+        if (speaker is LocalParticipant) {
+            val remoteSpeaker = participantsList
+                .filterIsInstance<RemoteParticipant>() // Try not to display local participant as speaker.
+                .firstOrNull()
+
+            if (remoteSpeaker != null) {
+                speaker = remoteSpeaker
+            }
+        }
+
+        // If previous primary speaker leaves
+        if (!participantsList.contains(speaker)) {
+            // Default to another person in room, or local participant.
+            speaker = participantsList.filterIsInstance<RemoteParticipant>()
+                .firstOrNull()
+                ?: room?.localParticipant
+        }
+
+        if (speakers.isNotEmpty() && !speakers.contains(speaker)) {
+            val remoteSpeaker = speakers
+                .filterIsInstance<RemoteParticipant>() // Try not to display local participant as speaker.
+                .firstOrNull()
+
+            if (remoteSpeaker != null) {
+                speaker = remoteSpeaker
+            }
+        }
+
+        mutablePrimarySpeaker.value = speaker
+    }
+
+    /**
+     * Start a screen capture with the result intent from
+     * [MediaProjectionManager.createScreenCaptureIntent]
+     */
+    fun startScreenCapture(mediaProjectionPermissionResultData: Intent) {
+        val localParticipant = room.localParticipant
+        viewModelScope.launch(Dispatchers.IO) {
+            localParticipant.setScreenShareEnabled(true, ScreenCaptureParams(mediaProjectionPermissionResultData))
+            val screencastTrack = localParticipant.getTrackPublication(Track.Source.SCREEN_SHARE)?.track as? LocalScreencastVideoTrack
+            this@CallViewModel.localScreencastTrack = screencastTrack
+        }
+    }
+
+    fun stopScreenCapture() {
+        viewModelScope.launch(Dispatchers.IO) {
+            localScreencastTrack?.let { localScreencastVideoTrack ->
+                localScreencastVideoTrack.stop()
+                room.localParticipant.unpublishTrack(localScreencastVideoTrack)
+            }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+
+        // Tear down any RPC handlers before releasing the room.
+        mutableHandlers.value.forEach { handler ->
+            runCatching { room.localParticipant.unregisterRpcMethod(handler.method) }
+        }
+        mutableHandlers.value = emptyList()
+
+        // Make sure to release any resources associated with Gravix
+        room.disconnect()
+        room.release()
+
+        // Clean up foreground service
+        val application = getApplication<Application>()
+        val foregroundServiceIntent = Intent(application, ForegroundService::class.java)
+        application.stopService(foregroundServiceIntent)
+        cameraProvider?.let {
+            CameraCapturerUtils.unregisterCameraProvider(it)
+        }
+    }
+
+    fun setMicEnabled(enabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            room.localParticipant.setMicrophoneEnabled(enabled)
+        }
+    }
+
+    fun setCameraEnabled(enabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            room.localParticipant.setCameraEnabled(enabled)
+        }
+    }
+
+    fun flipCamera() {
+        val videoTrack = room.localParticipant.getTrackPublication(Track.Source.CAMERA)
+            ?.track as? LocalVideoTrack
+            ?: return
+
+        val newPosition = when (videoTrack.options.position) {
+            CameraPosition.FRONT -> CameraPosition.BACK
+            CameraPosition.BACK -> CameraPosition.FRONT
+            else -> null
+        }
+
+        videoTrack.switchCamera(position = newPosition)
+    }
+
+    fun dismissError() {
+        mutableError.value = null
+    }
+
+    fun sendData(message: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            room.localParticipant.sendText(message, StreamTextOptions(topic = "lk.chat"))
+        }
+    }
+
+    fun registerRpcHandler(method: String, initialResponse: String) {
+        if (method.isBlank()) return
+        val state = RpcHandlerState(
+            method = method,
+            staticResponse = MutableStateFlow(initialResponse),
+            invocations = MutableStateFlow(emptyList()),
+        )
+        room.localParticipant.registerRpcMethod(method) { invocation ->
+            val record = RpcInvocationRecord(
+                timestamp = System.currentTimeMillis(),
+                caller = invocation.callerIdentity,
+                payload = invocation.payload,
+            )
+            state.invocations.value = state.invocations.value + record
+            state.staticResponse.value
+        }
+        // Replace any prior entry for the same method (SDK overwrites anyway).
+        mutableHandlers.value = mutableHandlers.value.filterNot { it.method == method } + state
+    }
+
+    fun unregisterRpcHandler(method: String) {
+        room.localParticipant.unregisterRpcMethod(method)
+        mutableHandlers.value = mutableHandlers.value.filterNot { it.method == method }
+    }
+
+    fun updateStaticResponse(method: String, response: String) {
+        mutableHandlers.value.firstOrNull { it.method == method }
+            ?.staticResponse?.let { it.value = response }
+    }
+
+    suspend fun performRpc(
+        destination: Participant.Identity,
+        method: String,
+        payload: String,
+    ): RpcRequestResult {
+        return try {
+            val response = room.localParticipant.performRpc(destination, method, payload)
+            RpcRequestResult.Success(response)
+        } catch (e: RpcError) {
+            RpcRequestResult.Error(e.code, e.message)
+        } catch (e: Throwable) {
+            RpcRequestResult.Error(null, e.message ?: e.toString())
+        }
+    }
+
+    fun toggleSubscriptionPermissions() {
+        mutablePermissionAllowed.value = !mutablePermissionAllowed.value
+        room.localParticipant.setTrackSubscriptionPermissions(mutablePermissionAllowed.value)
+    }
+
+    // Debug functions
+    fun simulateMigration() {
+        room.sendSimulateScenario(Room.SimulateScenario.MIGRATION)
+    }
+
+    fun simulateNodeFailure() {
+        room.sendSimulateScenario(Room.SimulateScenario.NODE_FAILURE)
+    }
+
+    fun simulateServerLeaveFullReconnect() {
+        room.sendSimulateScenario(Room.SimulateScenario.SERVER_LEAVE_FULL_RECONNECT)
+    }
+
+    fun updateAttribute(key: String, value: String) {
+        room.localParticipant.updateAttributes(mapOf(key to value))
+    }
+
+    fun reconnect() {
+        GxLog.e { "Reconnecting." }
+        mutablePrimarySpeaker.value = null
+        room.disconnect()
+        viewModelScope.launch(Dispatchers.IO) {
+            connectToRoom()
+        }
+    }
+
+    private suspend fun StressTest.SwitchRoom.execute() = coroutineScope {
+        launch(Dispatchers.Default) {
+            while (isActive) {
+                delay(2000)
+                dumpReferenceTables()
+            }
+        }
+
+        while (isActive) {
+            GxLog.d { "Stress test -> connect to first room" }
+            launch(Dispatchers.IO) { quickConnectToRoom(firstToken) }
+            delay(200)
+            room.disconnect()
+            delay(50)
+            GxLog.d { "Stress test -> connect to second room" }
+            launch(Dispatchers.IO) { quickConnectToRoom(secondToken) }
+            delay(200)
+            room.disconnect()
+            delay(50)
+        }
+    }
+
+    private suspend fun quickConnectToRoom(token: String) {
+        try {
+            // The stress test is only reachable with literal credentials.
+            val url = (tokenSourceArgs as TokenSourceArgs.Literal).url
+            room.connect(
+                url = url,
+                token = token,
+            )
+        } catch (e: Throwable) {
+            GxLog.e(e) { "Failed to connect to room" }
+        }
+    }
+
+    @SuppressLint("DiscouragedPrivateApi")
+    private fun dumpReferenceTables() {
+        try {
+            val cls = Class.forName("android.os.Debug")
+            val method = cls.getDeclaredMethod("dumpReferenceTables")
+            val con = cls.getDeclaredConstructor().apply {
+                isAccessible = true
+            }
+            method.invoke(con.newInstance())
+        } catch (e: Exception) {
+            GxLog.e(e) { "Unable to dump reference tables, you can try `adb shell settings put global hidden_api_policy 1`" }
+        }
+    }
+}
+
+private fun <T> LiveData<T>.hide(): LiveData<T> = this
+private fun <T> MutableStateFlow<T>.hide(): StateFlow<T> = this
+
+data class RpcInvocationRecord(
+    val timestamp: Long,
+    val caller: Participant.Identity,
+    val payload: String,
+)
+
+class RpcHandlerState(
+    val method: String,
+    val staticResponse: MutableStateFlow<String>,
+    val invocations: MutableStateFlow<List<RpcInvocationRecord>>,
+)
+
+sealed class RpcRequestResult {
+    data class Success(val response: String) : RpcRequestResult()
+    data class Error(val code: Int?, val message: String) : RpcRequestResult()
+}

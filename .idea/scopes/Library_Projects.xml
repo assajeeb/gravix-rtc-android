@@ -1,0 +1,3 @@
+<component name="DependencyValidationManager">
+  <scope name="Library Projects" pattern="file[gravix-rtc-android.gravix-rtc-android-sdk*]:*//*||file[gravix-rtc-android.gravix-rtc-android-camerax*]:*//*||file[gravix-rtc-android.gravix-rtc-android-test*]:*//*||file[gravix-rtc-android.gravix-rtc-lint*]:*//*" />
+</component>

@@ -1,0 +1,76 @@
+// Shared protobuf setup for Gravix client protos.
+//
+// Configure before applying:
+//   ext.gravixProtoIncludes = ['livekit_models.proto', ...]
+// Optional (for modules that compile a subset but import others):
+//   ext.gravixProtoImportSrc = true
+
+if (!project.ext.has('gravixProtoIncludes')) {
+    throw new GradleException("ext.gravixProtoIncludes must be set before applying gravix-protobuf.gradle")
+}
+
+apply from: rootProject.file("gradle/gravix-proto-names.gradle") // GRAVIX(rebrand)
+
+def stagedProtoSrcDir = layout.buildDirectory.dir("staged-proto-src")
+def stageProtoSources = tasks.register("stageProtoSources", Copy) {
+    from(generated.protoSrc) {
+        include project.ext.gravixProtoIncludes as String[]
+    }
+    into stagedProtoSrcDir
+    eachFile(gravixProtoJavaNames) // GRAVIX(rebrand)
+}
+
+android.sourceSets.main.proto {
+    srcDir stagedProtoSrcDir
+}
+
+android.sourceSets.main.java {
+    srcDir "${protobuf.generatedFilesBaseDir}/main/javalite"
+}
+
+configurations {
+    descriptorProtoSource
+}
+
+dependencies {
+    descriptorProtoSource "com.google.protobuf:protobuf-java:${libs.versions.protobuf.get()}"
+}
+
+def extractedImportProtosDir = layout.buildDirectory.dir("extracted-import-protos")
+def extractProtoImports = tasks.register("extractProtoImports", Copy) {
+    into extractedImportProtosDir
+    from { zipTree(configurations.descriptorProtoSource.singleFile) } {
+        include "google/protobuf/descriptor.proto"
+    }
+    from(generated.protoSrc) {
+        include "logger/**"
+    }
+}
+
+protobuf {
+    protoc {
+        // for apple m1, please add protoc_platform=osx-x86_64 in $HOME/.gradle/gradle.properties
+        if (project.hasProperty('protoc_platform')) {
+            artifact = "com.google.protobuf:protoc:${libs.versions.protobuf.get()}:${protoc_platform}"
+        } else {
+            artifact = "com.google.protobuf:protoc:${libs.versions.protobuf.get()}"
+        }
+    }
+
+    generateProtoTasks {
+        all().each { task ->
+            task.dependsOn stageProtoSources
+            task.dependsOn extractProtoImports
+            task.addIncludeDir files(extractedImportProtosDir)
+            if (project.ext.has('gravixProtoImportSrc') && project.ext.gravixProtoImportSrc) {
+                task.dependsOn gravixStageProtoImports // GRAVIX(rebrand)
+                task.addIncludeDir files(gravixStagedProtoImportDir)
+            }
+            task.builtins {
+                java {
+                    option "lite"
+                }
+            }
+        }
+    }
+}

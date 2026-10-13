@@ -1,0 +1,507 @@
+/*
+ * Copyright 2023-2026 LiveKit, Inc.
+ * Modifications Copyright 2026 Gravity Compile
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.gravixcloud.rtc.room
+
+import com.gravixcloud.rtc.stats.NetworkInfo
+import com.gravixcloud.rtc.stats.NetworkType
+import com.gravixcloud.rtc.test.BaseTest
+import com.gravixcloud.rtc.test.mock.MockWebSocketFactory
+import com.gravixcloud.rtc.test.mock.TestData.EXAMPLE_URL
+import com.gravixcloud.rtc.test.mock.TestData.JOIN
+import com.gravixcloud.rtc.test.mock.TestData.OFFER
+import com.gravixcloud.rtc.test.mock.TestData.PONG
+import com.gravixcloud.rtc.test.mock.TestData.RECONNECT
+import com.gravixcloud.rtc.test.mock.TestData.ROOM_UPDATE
+import com.gravixcloud.rtc.test.util.toPBByteString
+import com.gravixcloud.rtc.util.toOkioByteString
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.yield
+import kotlinx.serialization.json.Json
+import gravixcloud.GravixcloudModels
+import gravixcloud.GravixcloudRtc
+import org.webrtc.SessionDescription
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocketListener
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.mockito.Mock
+import org.mockito.Mockito
+import org.mockito.Mockito.clearInvocations
+import org.mockito.Mockito.inOrder
+import org.mockito.kotlin.any
+import org.mockito.kotlin.argThat
+import org.mockito.kotlin.never
+import org.mockito.kotlin.times
+
+@ExperimentalCoroutinesApi
+class SignalClientTest : BaseTest() {
+
+    lateinit var wsFactory: MockWebSocketFactory
+    lateinit var client: SignalClient
+
+    @Mock
+    lateinit var listener: SignalClient.Listener
+
+    @Mock
+    lateinit var okHttpClient: OkHttpClient
+
+    @Before
+    fun setup() {
+        wsFactory = MockWebSocketFactory()
+        client = SignalClient(
+            wsFactory,
+            Json,
+            okHttpClient = okHttpClient,
+            ioDispatcher = coroutineRule.dispatcher,
+            networkInfo = object : NetworkInfo {
+                override fun getNetworkType() = NetworkType.WIFI
+            },
+        )
+        client.listener = listener
+    }
+
+    private fun createOpenResponse(request: Request): Response {
+        return Response.Builder()
+            .request(request)
+            .code(200)
+            .protocol(Protocol.HTTP_2)
+            .message("")
+            .build()
+    }
+
+    /**
+     * Supply the needed websocket messages to finish a join call.
+     */
+    private fun connectWebsocketAndJoin() {
+        client.onOpen(wsFactory.ws, createOpenResponse(wsFactory.request))
+        client.onMessage(wsFactory.ws, JOIN.toOkioByteString())
+    }
+
+    @Test
+    fun usesAuthToken() = runTest {
+        val token = "this-is-an-auth-token"
+        val job = async {
+            client.join(EXAMPLE_URL, token)
+        }
+
+        connectWebsocketAndJoin()
+        job.await()
+        val ws = wsFactory.ws
+
+        assertEquals("Bearer $token", ws.request().header("Authorization"))
+        assertFalse(ws.request().url.query?.contains(token) ?: true)
+    }
+
+    @Test
+    fun joinAndResponse() = runTest {
+        val job = async {
+            client.join(EXAMPLE_URL, "")
+        }
+
+        connectWebsocketAndJoin()
+
+        val response = job.await()
+        assertEquals(true, client.isConnected)
+        assertEquals(response, JOIN.join)
+    }
+
+    @Test
+    fun reconnect() = runTest {
+        val job = async {
+            client.reconnect(EXAMPLE_URL, "", "participant_sid")
+        }
+
+        client.onOpen(wsFactory.ws, createOpenResponse(wsFactory.request))
+        client.onMessage(wsFactory.ws, RECONNECT.toOkioByteString())
+
+        job.await()
+        assertEquals(true, client.isConnected)
+    }
+
+    @Test
+    fun joinFailure() = runTest {
+        var failed = false
+        val job = async {
+            try {
+                client.join(EXAMPLE_URL, "")
+            } catch (e: Exception) {
+                failed = true
+            }
+        }
+
+        wsFactory.ws.cancel()
+        job.await()
+
+        assertTrue(failed)
+    }
+
+    @Test
+    fun listenerNotCalledUntilOnReady() = runTest {
+        val job = async {
+            client.join(EXAMPLE_URL, "")
+        }
+
+        connectWebsocketAndJoin()
+        client.onMessage(wsFactory.ws, OFFER.toOkioByteString())
+
+        job.await()
+
+        Mockito.verifyNoInteractions(listener)
+    }
+
+    @Test
+    fun listenerCalledAfterOnReady() = runTest {
+        val job = async {
+            client.join(EXAMPLE_URL, "")
+        }
+        connectWebsocketAndJoin()
+        client.onMessage(wsFactory.ws, OFFER.toOkioByteString())
+
+        job.await()
+        client.onReadyForResponses()
+        Mockito.verify(listener)
+            .onServerOffer(
+                sessionDescription = argThat { type == SessionDescription.Type.OFFER && description == OFFER.offer.sdp },
+                offerId = argThat { id -> id == OFFER.offer.id },
+            )
+    }
+
+    /**
+     * [WebSocketListener.onFailure] does not call through to
+     * [WebSocketListener.onClosed]. Ensure that listener is called properly.
+     */
+    @Test
+    fun listenerNotifiedAfterFailure() = runTest {
+        val job = async {
+            client.join(EXAMPLE_URL, "")
+        }
+        connectWebsocketAndJoin()
+        job.await()
+
+        wsFactory.ws.cancel()
+
+        Mockito.verify(listener)
+            .onClose(any(), any())
+    }
+
+    /**
+     * Cold [join] handshake failure: [isConnected] is still false and this is not a reconnect attempt,
+     * so the listener must not get [SignalClient.Listener.onClose] (RTCEngine uses [onError] while
+     * CONNECTING). OkHttp does not call [WebSocketListener.onClosed] after [WebSocketListener.onFailure].
+     */
+    @Test
+    fun onCloseNotInvokedWhenJoinHandshakeFailsBeforeJoinMessage() = runTest {
+        supervisorScope {
+            val job = async {
+                client.join(EXAMPLE_URL, "")
+            }
+            yield()
+            client.onOpen(wsFactory.ws, createOpenResponse(wsFactory.request))
+            wsFactory.ws.cancel()
+
+            runCatching { job.await() }
+        }
+
+        Mockito.verify(listener, never()).onClose(any(), any())
+        Mockito.verify(listener, times(1)).onError(any())
+    }
+
+    /**
+     * Mirrors [RTCEngine] soft reconnect, and then tests when the reconnect handshake fails before
+     * the reconnect message is delivered (no join response yet).
+     */
+    @Test
+    fun onCloseInvokedWhenReconnectHandshakeFailsBeforeReconnectMessage() = runTest {
+        val joinJob = async {
+            client.join(EXAMPLE_URL, "")
+        }
+        connectWebsocketAndJoin()
+        joinJob.await()
+
+        val connectedWs = wsFactory.ws
+        connectedWs.cancel()
+        Mockito.verify(listener).onClose(any(), any())
+
+        supervisorScope {
+            val reconnectJob = async {
+                client.reconnect(EXAMPLE_URL, "", "participant_sid")
+            }
+            yield()
+            clearInvocations(listener)
+
+            client.onOpen(wsFactory.ws, createOpenResponse(wsFactory.request))
+            wsFactory.ws.cancel()
+
+            runCatching { reconnectJob.await() }
+        }
+
+        Mockito.verify(listener).onClose(
+            argThat { reason: String -> reason.contains("cancelled") },
+            any(),
+        )
+    }
+
+    /**
+     * When the join coroutine is cancelled, [MockWebSocket.cancel] runs and delivers [onFailure].
+     * That path must not report a normal signal close to the listener (no duplicate reconnect churn).
+     */
+    @Test
+    fun onCloseNotInvokedWhenJoinJobCancelled() = runTest {
+        val job = async {
+            client.join(EXAMPLE_URL, "")
+        }
+        yield()
+        job.cancel()
+
+        runCatching { job.await() }
+
+        Mockito.verify(listener, never()).onClose(any(), any())
+    }
+
+    /**
+     * Ensure responses that come in before [SignalClient.onReadyForResponses] are queued.
+     */
+    @Test
+    fun queuedResponses() = runTest {
+        val inOrder = inOrder(listener)
+        val job = async {
+            client.join(EXAMPLE_URL, "")
+        }
+        connectWebsocketAndJoin()
+        job.await()
+
+        client.onMessage(wsFactory.ws, OFFER.toOkioByteString())
+        client.onMessage(wsFactory.ws, ROOM_UPDATE.toOkioByteString())
+        client.onMessage(wsFactory.ws, ROOM_UPDATE.toOkioByteString())
+
+        client.onReadyForResponses()
+
+        inOrder.verify(listener).onServerOffer(
+            sessionDescription = argThat { type == SessionDescription.Type.OFFER && description == OFFER.offer.sdp },
+            offerId = argThat { id -> id == OFFER.offer.id },
+        )
+        inOrder.verify(listener, times(2)).onRoomUpdate(any())
+    }
+
+    @Test
+    fun sendRequest() = runTest {
+        val job = async { client.join(EXAMPLE_URL, "") }
+        connectWebsocketAndJoin()
+        job.await()
+
+        client.sendMuteTrack("sid", true)
+
+        val ws = wsFactory.ws
+
+        assertEquals(1, ws.sentRequests.size)
+        val sentRequest = GravixcloudRtc.SignalRequest.newBuilder()
+            .mergeFrom(ws.sentRequests[0].toPBByteString())
+            .build()
+
+        assertTrue(sentRequest.hasMute())
+    }
+
+    @Test
+    fun queuedRequests() = runTest {
+        client.sendMuteTrack("sid", true)
+        client.sendMuteTrack("sid", true)
+        client.sendMuteTrack("sid", true)
+
+        val job = async { client.join(EXAMPLE_URL, "") }
+        connectWebsocketAndJoin()
+        job.await()
+
+        val ws = wsFactory.ws
+        assertEquals(3, ws.sentRequests.size)
+        val sentRequest = GravixcloudRtc.SignalRequest.newBuilder()
+            .mergeFrom(ws.sentRequests[0].toPBByteString())
+            .build()
+
+        assertTrue(sentRequest.hasMute())
+    }
+
+    @Test
+    fun queuedRequestsWhileReconnecting() = runTest {
+        client.sendMuteTrack("sid", true)
+        client.sendMuteTrack("sid", true)
+        client.sendMuteTrack("sid", true)
+
+        val job = async { client.reconnect(EXAMPLE_URL, "", "participant_sid") }
+        client.onOpen(wsFactory.ws, createOpenResponse(wsFactory.request))
+        client.onMessage(wsFactory.ws, RECONNECT.toOkioByteString())
+        job.await()
+
+        val ws = wsFactory.ws
+
+        // Wait until peer connection is connected to send requests.
+        assertEquals(0, ws.sentRequests.size)
+
+        client.onPCConnected()
+
+        assertEquals(3, ws.sentRequests.size)
+        val sentRequest = GravixcloudRtc.SignalRequest.newBuilder()
+            .mergeFrom(ws.sentRequests[0].toPBByteString())
+            .build()
+
+        assertTrue(sentRequest.hasMute())
+    }
+
+    @Test
+    fun pingTest() = runTest {
+        val joinResponseWithPing = with(JOIN.toBuilder()) {
+            join = with(join.toBuilder()) {
+                pingInterval = 10
+                pingTimeout = 20
+                build()
+            }
+            build()
+        }
+
+        val job = async {
+            client.join(EXAMPLE_URL, "")
+        }
+        client.onOpen(wsFactory.ws, createOpenResponse(wsFactory.request))
+        client.onMessage(wsFactory.ws, joinResponseWithPing.toOkioByteString())
+        job.await()
+        val originalWs = wsFactory.ws
+        assertFalse(originalWs.isClosed)
+
+        testScheduler.advanceTimeBy(15 * 1000)
+        assertTrue(
+            originalWs.sentRequests.any { requestString ->
+                val sentRequest = GravixcloudRtc.SignalRequest.newBuilder()
+                    .mergeFrom(requestString.toPBByteString())
+                    .build()
+
+                return@any sentRequest.hasPing()
+            },
+        )
+
+        client.onMessage(wsFactory.ws, PONG.toOkioByteString())
+
+        testScheduler.advanceTimeBy(10 * 1000)
+        assertFalse(originalWs.isClosed)
+    }
+
+    @Test
+    fun pingTimeoutTest() = runTest {
+        val joinResponseWithPing = with(JOIN.toBuilder()) {
+            join = with(join.toBuilder()) {
+                pingInterval = 10
+                pingTimeout = 20
+                build()
+            }
+            build()
+        }
+
+        val job = async {
+            client.join(EXAMPLE_URL, "")
+        }
+        client.onOpen(wsFactory.ws, createOpenResponse(wsFactory.request))
+        client.onMessage(wsFactory.ws, joinResponseWithPing.toOkioByteString())
+        job.await()
+        val originalWs = wsFactory.ws
+        assertFalse(originalWs.isClosed)
+
+        testScheduler.advanceUntilIdle()
+
+        assertTrue(originalWs.isClosed)
+    }
+
+    /**
+     * Reconnect fails cleanly when server sends LEAVE as the initial response and closes WS cleanly.
+     */
+    @Test
+    fun reconnectDoesNotHangOnLeaveStateMismatchWithCleanClose() = runTest {
+        val joinJob = async { client.join(EXAMPLE_URL, "") }
+        connectWebsocketAndJoin()
+        joinJob.await()
+
+        wsFactory.ws.cancel()
+
+        supervisorScope {
+            val reconnectJob = async {
+                client.reconnect(EXAMPLE_URL, "", "participant_sid")
+            }
+            yield()
+
+            client.onOpen(wsFactory.ws, createOpenResponse(wsFactory.request))
+            val leaveResponse = with(GravixcloudRtc.SignalResponse.newBuilder()) {
+                leave = with(GravixcloudRtc.LeaveRequest.newBuilder()) {
+                    reason = GravixcloudModels.DisconnectReason.STATE_MISMATCH
+                    action = GravixcloudRtc.LeaveRequest.Action.RECONNECT
+                    build()
+                }
+                build()
+            }
+            wsFactory.receiveMessage(leaveResponse)
+
+            wsFactory.ws.close(1000, "normal")
+
+            val result = runCatching { reconnectJob.await() }
+            assertTrue("reconnect should have failed", result.isFailure)
+        }
+    }
+
+    /**
+     * Reconnect fails cleanly when server sends LEAVE as the initial response and drops the connection.
+     */
+    @Test
+    fun reconnectDoesNotHangOnLeaveStateMismatchWithFailure() = runTest {
+        val joinJob = async { client.join(EXAMPLE_URL, "") }
+        connectWebsocketAndJoin()
+        joinJob.await()
+
+        wsFactory.ws.cancel()
+
+        supervisorScope {
+            val reconnectJob = async {
+                client.reconnect(EXAMPLE_URL, "", "participant_sid")
+            }
+            yield()
+
+            client.onOpen(wsFactory.ws, createOpenResponse(wsFactory.request))
+            val leaveResponse = with(GravixcloudRtc.SignalResponse.newBuilder()) {
+                leave = with(GravixcloudRtc.LeaveRequest.newBuilder()) {
+                    reason = GravixcloudModels.DisconnectReason.STATE_MISMATCH
+                    action = GravixcloudRtc.LeaveRequest.Action.RECONNECT
+                    build()
+                }
+                build()
+            }
+            wsFactory.receiveMessage(leaveResponse)
+
+            // 5. Server drops connection (unclean close)
+            wsFactory.ws.cancel()
+
+            val result = runCatching { reconnectJob.await() }
+            assertTrue("reconnect should have failed", result.isFailure)
+        }
+    }
+
+    // mock data
+    companion object
+}

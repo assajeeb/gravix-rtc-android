@@ -1,0 +1,18 @@
+# gitleaks configuration (tools/release/public-snapshot.sh scans the public snapshot with it; also used by
+# `gitleaks dir .`). The default rules plus allowlists for fixtures that only LOOK like secrets.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Test fixtures: JWT-shaped tokens with fake claims (the upstream engine's own test data in TokenPayloadTest and CachingTokenSourceTest, byte-identical to its v2.28.2; GxRedactTest's redaction inputs, sub=fake). No real key or secret."
+paths = [
+    '''gravix-rtc-android-test/src/test/java/com/gravixcloud/rtc/token/TokenPayloadTest\.kt''',
+    '''gravix-rtc-android-test/src/test/java/com/gravixcloud/rtc/token/CachingTokenSourceTest\.kt''',
+    '''gravix-rtc-android-test/src/test/java/com/gravixcloud/rtc/util/GxRedactTest\.kt''',
+]
+
+[[allowlists]]
+description = "Empty instrumented-test placeholders in gradle.properties (real values live in ~/.gradle/gradle.properties)."
+condition = "AND"
+paths = ['''(^|/)gradle\.properties$''']
+regexes = ['''gravixApi(Key|Secret)=\s*(gravixApi(Key|Secret)=)?\s*$''']

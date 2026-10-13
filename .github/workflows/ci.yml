@@ -1,0 +1,38 @@
+# Gravix CI skeleton. Upstream's workflows (publishing to Sonatype, changesets, dependabot) were removed:
+# this repository never publishes from CI.
+#
+# Manual trigger only for now: the repository is private, so every run spends the owner's Actions
+# minutes. To run on every push / pull request, add `push:` and `pull_request:` under `on:`.
+name: ci
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Build all modules and run the unit tests
+        run: ./gradlew --no-daemon --console=plain assembleRelease :gravix-rtc-android-test:testRelease :gravix-rtc-lint:test :gravix-rtc-detekt-rules:test
+      - name: Public API is the reviewed dump and names no implementation-only dependency
+        run: |
+          ./gradlew --no-daemon --console=plain :gravix-rtc-android-sdk:apiCheck
+          python3 tools/api-scan/scan.py
+      - name: Maven Local publish + consumer apps (Kotlin, Kotlin SDK-only, Java SDK-only) without JitPack
+        run: tools/consumer-check/run.sh
+      - name: Rename is idempotent and complete
+        run: |
+          tools/rebrand/rebrand.sh
+          git diff --exit-code
+          tools/rebrand/rebrand.sh --report

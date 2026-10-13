@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CompilerConfiguration">
+    <bytecodeTargetLevel target="1.8">
+      <module name="gravix-rtc-android.examples.screenshareaudio" target="17" />
+      <module name="gravix-rtc-android.examples.selfie-segmentation" target="17" />
+      <module name="gravix-rtc-android.NoTimeoutTestmodule" target="17" />
+    </bytecodeTargetLevel>
+  </component>
+  <component name="JavacSettings">
+    <option name="ADDITIONAL_OPTIONS_OVERRIDE">
+      <module name="gravix-rtc-android.gravix-rtc-lint" options="-proc:none" />
+      <module name="gravix-rtc-android.gravix-rtc-lint.main" options="-proc:none" />
+      <module name="gravix-rtc-android.gravix-rtc-lint.test" options="-proc:none" />
+    </option>
+  </component>
+</project>

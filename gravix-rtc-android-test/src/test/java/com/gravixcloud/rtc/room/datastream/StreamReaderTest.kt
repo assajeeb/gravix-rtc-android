@@ -1,0 +1,165 @@
+/*
+ * Copyright 2025-2026 LiveKit, Inc.
+ * Modifications Copyright 2026 Gravity Compile
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.gravixcloud.rtc.room.datastream
+
+import com.gravixcloud.rtc.room.datastream.incoming.ByteStreamReceiver
+import com.gravixcloud.rtc.room.datastream.incoming.IncomingDataStreamManagerImpl
+import com.gravixcloud.rtc.test.BaseTest
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.runBlocking
+import gravixcloud.GravixcloudModels
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class StreamReaderTest : BaseTest() {
+
+    lateinit var channel: Channel<ByteArray>
+    lateinit var reader: ByteStreamReceiver
+
+    @Before
+    fun setup() {
+        channel = IncomingDataStreamManagerImpl.createChannelForStreamReceiver()
+        channel.trySend(ByteArray(1) { 0 })
+        channel.trySend(ByteArray(1) { 1 })
+        channel.trySend(ByteArray(1) { 2 })
+        channel.close()
+        val streamInfo = ByteStreamInfo(
+            id = "id",
+            topic = "topic",
+            timestampMs = 3,
+            totalSize = null,
+            attributes = mapOf(),
+            mimeType = "mime",
+            name = null,
+            encryptionType = GravixcloudModels.Encryption.Type.NONE,
+        )
+        reader = ByteStreamReceiver(streamInfo, channel)
+    }
+
+    @Test
+    fun buffersDataUntilSubscribed() = runTest {
+        var count = 0
+        runBlocking {
+            reader.flow.collect {
+                assertEquals(count, it[0].toInt())
+                count++
+            }
+        }
+
+        assertEquals(3, count)
+    }
+
+    @Test
+    fun readEach() = runTest {
+        runBlocking {
+            for (i in 0..2) {
+                val next = reader.readNext()
+                assertEquals(i, next[0].toInt())
+            }
+        }
+    }
+
+    @Test
+    fun readAll() = runTest {
+        runBlocking {
+            val data = reader.readAll()
+            assertEquals(3, data.size)
+            for (i in 0..2) {
+                assertEquals(i, data[i][0].toInt())
+            }
+        }
+    }
+
+    @Test
+    fun readAllEmptyStream() = runTest {
+        val emptyChannel = IncomingDataStreamManagerImpl.createChannelForStreamReceiver()
+        emptyChannel.close()
+        val emptyReader = ByteStreamReceiver(
+            ByteStreamInfo(
+                id = "id",
+                topic = "topic",
+                timestampMs = 3,
+                totalSize = null,
+                attributes = mapOf(),
+                mimeType = "mime",
+                name = null,
+                encryptionType = GravixcloudModels.Encryption.Type.NONE,
+            ),
+            emptyChannel,
+        )
+
+        runBlocking {
+            val data = emptyReader.readAll()
+            assertEquals(0, data.size)
+        }
+    }
+
+    @Test
+    fun readAllThrowsStreamException() = runTest {
+        val errorChannel = IncomingDataStreamManagerImpl.createChannelForStreamReceiver()
+        errorChannel.trySend(ByteArray(1) { 0 })
+        errorChannel.trySend(ByteArray(1) { 1 })
+        errorChannel.trySend(ByteArray(1) { 2 })
+        errorChannel.close(StreamException.AbnormalEndException("reason"))
+        val errorReader = ByteStreamReceiver(
+            ByteStreamInfo(
+                id = "id",
+                topic = "topic",
+                timestampMs = 3,
+                totalSize = null,
+                attributes = mapOf(),
+                mimeType = "mime",
+                name = null,
+                encryptionType = GravixcloudModels.Encryption.Type.NONE,
+            ),
+            errorChannel,
+        )
+
+        var threwOnce = false
+        runBlocking {
+            try {
+                errorReader.readAll()
+            } catch (e: StreamException.AbnormalEndException) {
+                threwOnce = true
+            }
+        }
+
+        assertTrue(threwOnce)
+    }
+
+    @Test
+    fun overreadThrows() = runTest {
+        var threwOnce = false
+        runBlocking {
+            try {
+                for (i in 0..3) {
+                    val next = reader.readNext()
+                    assertEquals(i, next[0].toInt())
+                }
+            } catch (e: NoSuchElementException) {
+                threwOnce = true
+            }
+        }
+
+        assertTrue(threwOnce)
+    }
+}

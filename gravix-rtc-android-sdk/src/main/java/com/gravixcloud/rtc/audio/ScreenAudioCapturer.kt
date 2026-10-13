@@ -1,0 +1,360 @@
+/*
+ * Copyright 2024-2026 LiveKit, Inc.
+ * Modifications Copyright 2026 Gravity Compile
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.gravixcloud.rtc.audio
+
+import android.Manifest
+import android.annotation.SuppressLint
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioPlaybackCaptureConfiguration
+import android.media.AudioRecord
+import android.media.projection.MediaProjection
+import android.os.Build
+import androidx.annotation.RequiresApi
+import androidx.annotation.RequiresPermission
+import com.gravixcloud.rtc.room.track.LocalVideoTrack
+import com.gravixcloud.rtc.room.track.Track
+import com.gravixcloud.rtc.util.GxLog
+import org.webrtc.ScreenCapturerAndroid
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.FloatBuffer
+import java.nio.ShortBuffer
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.roundToInt
+
+private const val BUFFER_SIZE_FACTOR = 2
+private const val MIN_GAIN_CHANGE = 0.01f
+private const val DEFAULT_GAIN = 1f
+
+private val DEFAULT_CONFIGURATOR: AudioPlaybackCaptureConfigurator = { builder ->
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        builder.addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+        builder.addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+        builder.addMatchingUsage(AudioAttributes.USAGE_GAME)
+    }
+}
+
+/**
+ * A mixer for capturing screen share audio.
+ *
+ * Requires a media projection, which can be obtained from the screen share track.
+ *
+ * Additionally, for screen capture to work properly while your app is in the
+ * background, a foreground service with the type `microphone` must be running.
+ * Otherwise, audio capture will not return any audio data.
+ *
+ * Example usage:
+ * ```
+ * suspend fun startScreenCapture(data: Intent) {
+ *     if (ActivityCompat.checkSelfPermission(getApplication(), Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+ *         return
+ *     }
+ *
+ *     // Publish the screen share video.
+ *     room.localParticipant.setScreenShareEnabled(true, data)
+ *
+ *     // Optionally disable the mic for screenshare audio only
+ *     // val javaAudioDeviceModule = (room.gxObjects.audioDeviceModule as? JavaAudioDeviceModule)
+ *     // javaAudioDeviceModule?.setAudioRecordEnabled(false)
+ *
+ *     // Publish the audio track.
+ *     room.localParticipant.setMicrophoneEnabled(true)
+ *     val screenCaptureTrack = room.localParticipant.getTrackPublication(Track.Source.SCREEN_SHARE)?.track as? LocalVideoTrack ?: return
+ *     val audioTrack = room.localParticipant.getTrackPublication(Track.Source.MICROPHONE)?.track as? LocalAudioTrack ?: return
+ *
+ *     // Start capturing the screen share audio.
+ *     val audioCapturer = ScreenAudioCapturer.createFromScreenShareTrack(screenCaptureTrack) ?: return
+ *     audioCapturer.gain = 0.1f // Lower the volume so that mic can still be heard clearly.
+ *     audioTrack.setAudioBufferCallback(audioCapturer)
+ * }
+ *
+ * suspend fun stopScreenCapture() {
+ *     (room.localParticipant.getTrackPublication(Track.Source.MICROPHONE)?.track as? LocalAudioTrack)
+ *         ?.setAudioBufferCallback(null)
+ *     room.localParticipant.setMicrophoneEnabled(false)
+ *     room.localParticipant.setScreenShareEnabled(false)
+ *
+ *     // Remember to release when done capturing.
+ *     audioCapturer?.releaseAudioResources()
+ * }
+ * ```
+ */
+@RequiresApi(Build.VERSION_CODES.Q)
+class ScreenAudioCapturer
+@RequiresPermission(Manifest.permission.RECORD_AUDIO)
+constructor(
+    private val mediaProjection: MediaProjection,
+    /**
+     * Screen share audio capture requires the use of [AudioPlaybackCaptureConfiguration].
+     * This parameter allows customizing the configuration used. Note that
+     * the configuration must have at least one match rule applied to it or
+     * an exception will be thrown.
+     *
+     * The default configurator adds matching rules against all available usage
+     * types that can be captured.
+     */
+    private val captureConfigurator: AudioPlaybackCaptureConfigurator = DEFAULT_CONFIGURATOR,
+) : MixerAudioBufferCallback() {
+    /**
+     * Guards publication and release of [audioRecord]. [initAudioRecord] runs on WebRTC's audio
+     * record thread, while [releaseAudioResources] is called by the app from a thread of its
+     * choosing.
+     */
+    private val audioRecordLock = Any()
+
+    @Volatile
+    private var audioRecord: AudioRecord? = null
+
+    /**
+     * Terminal once set: releasing is what an app does when it is done capturing, and a capturer
+     * is tied to the single [MediaProjection] it was constructed with.
+     */
+    private var isReleased = false
+
+    private var hasInitialized = false
+
+    @Volatile
+    private var byteBuffer: ByteBuffer? = null
+
+    /**
+     * A multiplier to adjust the volume of the captured audio data.
+     *
+     * Values above 1 will increase the volume, values less than 1 will decrease it.
+     */
+    var gain = DEFAULT_GAIN
+
+    override fun onBufferRequest(originalBuffer: ByteBuffer, audioFormat: Int, channelCount: Int, sampleRate: Int, bytesRead: Int, captureTimeNs: Long): BufferResponse? {
+        if (!hasInitialized && audioRecord == null) {
+            hasInitialized = true
+            initAudioRecord(audioFormat = audioFormat, channelCount = channelCount, sampleRate = sampleRate)
+        }
+
+        val audioRecord = this.audioRecord ?: return null
+        val recordBuffer = this.byteBuffer ?: return null
+        val readResult = audioRecord.read(recordBuffer, recordBuffer.capacity())
+        if (readResult != recordBuffer.capacity()) {
+            // On a short or failed read, the buffer contents are stale; skip mixing rather than replay them.
+            if (readResult < 0) {
+                GxLog.w { "AudioRecord.read failed: $readResult. Stopping screen share audio capture." }
+                releaseAudioResources()
+            }
+            return null
+        }
+
+        if (abs(gain - DEFAULT_GAIN) > MIN_GAIN_CHANGE) {
+            recordBuffer.position(0)
+            when (audioFormat) {
+                AudioFormat.ENCODING_PCM_8BIT -> {
+                    adjustByteBuffer(recordBuffer, gain)
+                }
+
+                AudioFormat.ENCODING_PCM_16BIT,
+                AudioFormat.ENCODING_DEFAULT,
+                -> {
+                    adjustShortBuffer(recordBuffer.asShortBuffer(), gain)
+                }
+
+                AudioFormat.ENCODING_PCM_FLOAT -> {
+                    adjustFloatBuffer(recordBuffer.asFloatBuffer(), gain)
+                }
+
+                else -> {
+                    GxLog.w { "Unsupported audio format: $audioFormat" }
+                }
+            }
+        }
+        return BufferResponse(recordBuffer)
+    }
+
+    /**
+     * Initializes the [AudioRecord] used to capture the playback audio.
+     *
+     * This is handled automatically when used as an audio buffer callback,
+     * and does not need to be called manually.
+     *
+     * @return true if the audio record was successfully created and started. Returns false
+     * if audio capture is unavailable (for example, if the media projection has been stopped,
+     * or the capturer has been released), in which case no audio will be mixed.
+     */
+    @SuppressLint("MissingPermission")
+    fun initAudioRecord(audioFormat: Int, channelCount: Int, sampleRate: Int): Boolean {
+        if (channelCount != 1 && channelCount != 2) {
+            GxLog.e { "Unsupported channel count: $channelCount" }
+            return false
+        }
+        val audioRecord = try {
+            val audioCaptureConfig = AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
+                .apply(captureConfigurator)
+                .build()
+            val channelMask = if (channelCount == 1) AudioFormat.CHANNEL_IN_MONO else AudioFormat.CHANNEL_IN_STEREO
+
+            val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelMask, audioFormat)
+            if (minBufferSize <= 0) {
+                GxLog.e { "AudioRecord.getMinBufferSize error: $minBufferSize" }
+                return false
+            }
+            GxLog.v { "AudioRecord.getMinBufferSize: $minBufferSize" }
+
+            val bytesPerFrame = channelCount * getBytesPerSample(audioFormat)
+            val framesPerBuffer = sampleRate / 100
+            val readBufferCapacity = bytesPerFrame * framesPerBuffer
+            val byteBuffer = ByteBuffer.allocateDirect(readBufferCapacity)
+                .order(ByteOrder.nativeOrder())
+
+            if (!byteBuffer.hasArray()) {
+                GxLog.e { "ByteBuffer does not have backing array." }
+                return false
+            }
+
+            this.byteBuffer = byteBuffer
+            val bufferSizeInBytes: Int = max(BUFFER_SIZE_FACTOR * minBufferSize, readBufferCapacity)
+
+            AudioRecord.Builder()
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(audioFormat)
+                        .setSampleRate(sampleRate)
+                        .setChannelMask(channelMask)
+                        .build(),
+                )
+                .setBufferSizeInBytes(bufferSizeInBytes)
+                .setAudioPlaybackCaptureConfig(audioCaptureConfig)
+                .build()
+        } catch (e: Exception) {
+            GxLog.e(e) { "Failed to create AudioRecord for screen share audio capture:" }
+            return false
+        }
+
+        try {
+            audioRecord.startRecording()
+        } catch (e: Exception) {
+            GxLog.e(e) { "AudioRecord.startRecording failed:" }
+            audioRecord.release()
+            return false
+        }
+        if (audioRecord.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+            GxLog.e {
+                "AudioRecord.startRecording failed - incorrect state: ${audioRecord.recordingState}"
+            }
+            audioRecord.release()
+            return false
+        }
+
+        synchronized(audioRecordLock) {
+            if (isReleased) {
+                GxLog.w { "Screen share audio capturer was released while starting up. Discarding the AudioRecord." }
+                audioRecord.release()
+                return false
+            }
+            this.audioRecord = audioRecord
+        }
+
+        return true
+    }
+
+    /**
+     * Release any audio resources associated with this capturer.
+     * This is not managed by Gravix, so you must call this function
+     * when finished to prevent memory leaks.
+     *
+     * Safe to call from any thread, and at any point relative to [initAudioRecord]. Once released,
+     * the capturer stays released and no further audio is mixed in.
+     */
+    fun releaseAudioResources() {
+        synchronized(audioRecordLock) {
+            isReleased = true
+            audioRecord?.release()
+            audioRecord = null
+        }
+    }
+
+    private fun getBytesPerSample(audioFormat: Int): Int {
+        return when (audioFormat) {
+            AudioFormat.ENCODING_PCM_8BIT -> 1
+            AudioFormat.ENCODING_PCM_16BIT, AudioFormat.ENCODING_IEC61937, AudioFormat.ENCODING_DEFAULT -> 2
+            AudioFormat.ENCODING_PCM_FLOAT -> 4
+            else -> throw IllegalArgumentException("Bad audio format $audioFormat")
+        }
+    }
+
+    companion object {
+        @RequiresPermission(Manifest.permission.RECORD_AUDIO)
+        fun createFromScreenShareTrack(track: Track?): ScreenAudioCapturer? {
+            val screenShareTrack = track as? LocalVideoTrack
+
+            if (screenShareTrack == null) {
+                GxLog.e { "Tried to create screen audio capturer but passed track is not a video track: $track" }
+                return null
+            }
+
+            val capturer = screenShareTrack.capturer as? ScreenCapturerAndroid
+
+            if (capturer == null) {
+                GxLog.e { "Tried to create screen audio capturer but passed track does not contain a screen capturer: ${screenShareTrack.capturer}" }
+                return null
+            }
+            val mediaProjection = capturer.mediaProjection
+
+            if (mediaProjection == null) {
+                GxLog.e { "Tried to create screen audio capturer but the capturer doesn't have a media projection. Have you called startCapture?" }
+                return null
+            }
+
+            return ScreenAudioCapturer(mediaProjection)
+        }
+    }
+
+    private fun adjustByteBuffer(
+        buffer: ByteBuffer,
+        gain: Float,
+    ) {
+        for (i in 0 until buffer.capacity()) {
+            val adjusted = (buffer[i] * gain)
+                .roundToInt()
+                .coerceIn(Byte.MIN_VALUE.toInt(), Byte.MAX_VALUE.toInt())
+            buffer.put(i, adjusted.toByte())
+        }
+    }
+
+    private fun adjustShortBuffer(
+        buffer: ShortBuffer,
+        gain: Float,
+    ) {
+        for (i in 0 until buffer.capacity()) {
+            val adjusted = (buffer[i] * gain)
+                .roundToInt()
+                .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+            buffer.put(i, adjusted.toShort())
+        }
+    }
+
+    private fun adjustFloatBuffer(
+        buffer: FloatBuffer,
+        gain: Float,
+    ) {
+        for (i in 0 until buffer.capacity()) {
+            val adjusted = (buffer[i] * gain)
+                .coerceIn(-1f, 1f)
+            buffer.put(i, adjusted)
+        }
+    }
+}
+
+typealias AudioPlaybackCaptureConfigurator = (AudioPlaybackCaptureConfiguration.Builder) -> Unit

@@ -1,0 +1,39 @@
+pluginManagement {
+    repositories {
+        google {
+            content {
+                includeGroupByRegex("com\\.android.*")
+                includeGroupByRegex("com\\.google.*")
+                includeGroupByRegex("androidx.*")
+            }
+        }
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        maven {
+            // GRAVIX(rebrand): JitPack serves only the sample app's groupie; SDK modules resolve from Maven Central.
+            url 'https://jitpack.io'
+            content { includeGroup 'com.github.lisawray.groupie' }
+        }
+    }
+}
+include ':sample-app', ':sample-app-compose', ':gravix-rtc-android-sdk'
+rootProject.name = 'gravix-rtc-android'
+include ':sample-app-common'
+include ':gravix-rtc-lint'
+include ':video-encode-decode-test'
+include ':sample-app-basic'
+include ':sample-app-java' // GRAVIX(Phase 4): Java sample (GravixRoomService)
+include ':sample-app-record-local'
+include ':examples:virtual-background'
+include ':gravix-rtc-android-test'
+include ':gravix-rtc-detekt-rules'
+include ':gravix-rtc-android-camerax'
+include ':examples:screenshare-audio'
+include ':gravix-rtc-android-track-processors'

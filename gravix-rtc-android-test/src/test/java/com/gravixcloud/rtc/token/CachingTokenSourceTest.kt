@@ -1,0 +1,162 @@
+/*
+ * Copyright 2025-2026 LiveKit, Inc.
+ * Modifications Copyright 2026 Gravity Compile
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.gravixcloud.rtc.token
+
+import com.gravixcloud.rtc.test.BaseTest
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import java.util.Date
+
+@OptIn(ExperimentalCoroutinesApi::class)
+// JWTPayload requires Android Base64 implementation, so robolectric runner needed.
+@RunWith(RobolectricTestRunner::class)
+class CachingTokenSourceTest : BaseTest() {
+
+    @Test
+    fun tokenIsValid() {
+        val tokenResponse = TokenSourceResponse(
+            "wss://www.example.com",
+            TokenPayloadTest.TEST_TOKEN,
+        )
+
+        assertTrue(tokenResponse.hasValidToken(date = Date(5000000000000)))
+    }
+
+    @Test
+    fun tokenBeforeNbfIsInvalid() {
+        val tokenResponse = TokenSourceResponse(
+            "wss://www.example.com",
+            TokenPayloadTest.TEST_TOKEN,
+        )
+
+        assertTrue(tokenResponse.hasValidToken(date = Date(0)))
+    }
+
+    @Test
+    fun tokenAfterExpIsInvalid() {
+        val tokenResponse = TokenSourceResponse(
+            "wss://www.example.com",
+            TokenPayloadTest.TEST_TOKEN,
+        )
+
+        assertTrue(tokenResponse.hasValidToken(date = Date(9999999990000)))
+    }
+
+    @Test
+    fun tokenWithoutExpIsInvalid() {
+        val tokenResponse = TokenSourceResponse(
+            "wss://www.example.com",
+            NO_EXP_TOKEN,
+        )
+
+        assertFalse(tokenResponse.hasValidToken())
+    }
+
+    @Test
+    fun tokenWithExpOnlyIsValid() {
+        val tokenResponse = TokenSourceResponse(
+            "wss://www.example.com",
+            EXP_ONLY_TOKEN,
+        )
+
+        assertTrue(tokenResponse.hasValidToken())
+    }
+
+    @Test
+    fun cachedValidTokenOnlyFetchedOnce() = runTest {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse().setBody(
+                """{
+    "serverUrl": "wss://www.example.com",
+    "roomName": "room-name",
+    "participantName": "participant-name",
+    "participantToken": "${TokenPayloadTest.TEST_TOKEN}"
+}""",
+            ),
+        )
+
+        val source = TokenSource
+            .fromEndpoint(server.url("/").toUrl())
+            .cached()
+
+        val firstResponse = source.fetch()
+        val secondResponse = source.fetch()
+
+        assertEquals(firstResponse, secondResponse)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun cachedInvalidTokenRefetched() = runTest {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse().setBody(
+                """{
+    "serverUrl": "wss://www.example.com",
+    "roomName": "room-name",
+    "participantName": "participant-name",
+    "participantToken": "${EXPIRED_TOKEN}"
+}""",
+            ),
+        )
+        server.enqueue(
+            MockResponse().setBody(
+                """{
+    "serverUrl": "wss://www.example.com",
+    "roomName": "room-name",
+    "participantName": "participant-name",
+    "participantToken": "${TokenPayloadTest.TEST_TOKEN}"
+}""",
+            ),
+        )
+
+        val source = TokenSource
+            .fromEndpoint(server.url("/").toUrl())
+            .cached()
+
+        val firstResponse = source.fetch()
+        val secondResponse = source.fetch()
+
+        assertNotEquals(firstResponse, secondResponse)
+        assertEquals(2, server.requestCount)
+    }
+
+    companion object {
+        // Token with an nbf and exp of 0 seconds.
+        const val EXPIRED_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiIsImtpZCI6IjlhMzJiZTg2NzkyZTM3Nm" +
+            "I3ZTBlMmIyNjVjMjY1YTA5In0.eyJpYXQiOjAsIm5iZiI6MCwiZXhwIjowfQ.8oV9K-CeULScAjFIK2O7sxEGUD7" +
+            "su3kCQv3Q8rhk0Hg_AuzQixJfz2Pt0rJUwLWhF0mSlcYMUKdR0yp12RfrdA"
+
+        // Dummy HS256 JWTs for cache-validity only (signature is not verified).
+        // NO_EXP: {"sub":"identity"} with no exp.
+        // EXP_ONLY: same identity plus exp 9876543210 (Fri Dec 22 2282).
+        const val NO_EXP_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJpZGVudGl0eSJ9." +
+            "ytOOgz0Ly2PUjItxXAXFRIE9sgZnOKPzQVSovM7uH84"
+        const val EXP_ONLY_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9." +
+            "eyJzdWIiOiJpZGVudGl0eSIsImV4cCI6OTg3NjU0MzIxMH0.Im7BMAH9ZdnkdPb7oTny_kEiVmdzep3Bl-SNwqAruMw"
+    }
+}

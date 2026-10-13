@@ -1,0 +1,43 @@
+// GRAVIX(Phase 4): the Java sample. Java sources only (no Kotlin plugin), so it proves the SDK is usable from Java:
+// GravixRoomService, futures and a listener. `./gradlew check` builds it (assembleDebug below) and CI runs check.
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.gravixcloud.rtc.sample.java'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.gravixcloud.rtc.sample.java"
+        minSdk 24 // the SDK requires 24
+        targetSdk 35
+        versionCode 1
+        versionName "1.0"
+        // Prefills the server url field (gradle property gravixSampleUrl); the token is pasted at runtime, never built in.
+        buildConfigField "String", "DEFAULT_URL", "\"${project.findProperty('gravixSampleUrl') ?: ''}\""
+    }
+
+    buildFeatures {
+        buildConfig = true
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    // Outside this repository: implementation "com.gravixcloud:gravix-rtc-android:<version>"
+    implementation project(":gravix-rtc-android-sdk")
+}
+
+tasks.named('check') {
+    dependsOn 'assembleDebug'
+}

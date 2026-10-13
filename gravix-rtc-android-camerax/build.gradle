@@ -1,0 +1,93 @@
+plugins {
+    id "org.jetbrains.dokka"
+    id 'com.android.library'
+    id 'kotlin-android'
+    id 'kotlin-kapt'
+}
+
+android {
+    namespace 'com.gravixcloud.rtc.camerax'
+    compileSdkVersion androidSdk.compileVersion
+
+    defaultConfig {
+        minSdkVersion androidSdk.minVersion
+        targetSdkVersion androidSdk.targetVersion
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        consumerProguardFiles "consumer-rules.pro"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility java_version
+        targetCompatibility java_version
+    }
+    kotlinOptions {
+        freeCompilerArgs = ["-Xinline-classes", "-opt-in=kotlin.RequiresOptIn"]
+        jvmTarget = java_version
+    }
+    testOptions {
+        unitTests {
+            includeAndroidResources = true
+        }
+    }
+}
+
+dokkaHtml {
+    moduleName.set("gravix-rtc-android-test")
+    dokkaSourceSets {
+        configureEach {
+            skipEmptyPackages.set(true)
+            includeNonPublic.set(false)
+            includes.from("module.md")
+            displayName.set("Gravix CameraX")
+            sourceLink {
+                localDirectory.set(file("src/main/java"))
+
+                // URL showing where the source code can be accessed through the web browser
+                remoteUrl.set(new URL(
+                    "${POM_SCM_URL}/tree/main/gravix-rtc-android-camerax/src/main/java" /* GRAVIX */))
+                // Suffix which is used to append the line number to the URL. Use #L for GitHub
+                remoteLineSuffix.set("#L")
+            }
+
+            perPackageOption {
+                matchingRegex.set(".*\\.dagger.*")
+                suppress.set(true)
+            }
+
+            perPackageOption {
+                matchingRegex.set(".*\\.util.*")
+                suppress.set(true)
+            }
+        }
+    }
+}
+
+dependencies {
+
+    api(project(":gravix-rtc-android-sdk"))
+    implementation libs.coroutines.lib
+    implementation libs.androidx.annotation
+
+    api libs.androidx.camera.core
+    api libs.androidx.camera.camera2
+    api libs.androidx.camera.lifecycle
+
+    testImplementation libs.junit
+    testImplementation libs.robolectric
+
+    androidTestImplementation libs.androidx.test.junit
+    androidTestImplementation libs.espresso
+}
+tasks.withType(Test).configureEach {
+    systemProperty "robolectric.logging.enabled", true
+}
+
+// GRAVIX(Phase 4): not published in 0.1.0 (only gravix-rtc-android is; upstream's gradle-mvn-push.gradle is gone).
+apply from: rootProject.file('gradle/dokka-kotlin-dep-fix.gradle')

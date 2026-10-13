@@ -1,0 +1,71 @@
+// Copyright 2026 Gravity Compile
+// SPDX-License-Identifier: Apache-2.0
+//
+// GRAVIX(rebrand): white-label Java names for the generated protobuf classes.
+// Installed by tools/rebrand/rebrand.sh as gradle/gravix-proto-names.gradle (do not edit the copy).
+//
+// Upstream compiles the `protocol` submodule's livekit_*.proto files as-is, which yields Java classes
+// `livekit.LivekitModels`, `livekit.LivekitRtc`, ... that end up in every customer app (and in the
+// SDK's public API), and generated javadoc that names every message `livekit.<Message>`.
+// The submodule stays untouched. Only the STAGED copies that protoc compiles are rewritten, exactly as
+// the Flutter SDK regenerates its `gravixcloud_*.proto`:
+//
+//     package gravixcloud;                                   // was: package livekit;
+//     option java_package = "gravixcloud";
+//     option java_outer_classname = "Gravixcloud<Name>";     // livekit_models.proto -> GravixcloudModels
+//
+// plus `livekit.<Type>` references -> `gravixcloud.<Type>`, the upstream name in comments (which protoc
+// copies into the generated javadoc), and the file names (livekit_models.proto -> gravixcloud_models.proto,
+// imports included; generated sources cite their .proto file). Messages, fields and enum values are unchanged,
+// and protobuf's binary encoding carries no package name: the bytes on the wire are identical.
+// protobuf-javalite embeds no descriptors or full names in the compiled classes.
+//
+// Applied from gradle/gravix-protobuf.gradle (upstream's livekit-protobuf.gradle after the rename).
+
+ext.gravixProtoJavaNames = { FileCopyDetails details ->
+    def outer = details.name.replaceFirst(/\.proto$/, '')
+            .split('_').collect { it.capitalize() }.join('')
+            .replaceFirst(/^Livekit/, 'Gravixcloud')
+    details.filter { String line ->
+        if (line =~ /Copyright.*LiveKit, Inc\./) {
+            return line                                   // attribution stays
+        }
+        if (line ==~ /^package livekit;\s*$/) {
+            return "package gravixcloud;\noption java_package = \"gravixcloud\";\noption java_outer_classname = \"${outer}\";"
+        }
+        int c = line.indexOf('//')
+        String code = c >= 0 ? line.substring(0, c) : line
+        String comment = c >= 0 ? line.substring(c) : ''
+        code = code.replaceAll(/\blivekit\.(?=[A-Z])/, 'gravixcloud.')
+                .replaceAll(/import "livekit_/, 'import "gravixcloud_')
+        comment = comment
+                .replaceAll(/https?:\/\/[A-Za-z0-9.-]*livekit\.io\S*/, 'https://www.gravixcloud.com/docs')
+                .replace('LiveKit', 'Gravix')
+                .replace('livekit', 'gravix')
+        return code + comment
+    }
+}
+
+// Modules that compile a subset of the protos but import others (the test module) must resolve the
+// imports against copies carrying the same Java names; otherwise the generated code would reference
+// `livekit.LivekitModels` instead of the SDK's `gravixcloud.GravixcloudModels`.
+def gravixStagedProtoImportDirProvider = layout.buildDirectory.dir("gravix-staged-proto-imports")
+ext.gravixStagedProtoImportDir = gravixStagedProtoImportDirProvider
+ext.gravixStageProtoImports = tasks.register("gravixStageProtoImports", Copy) {
+    from(generated.protoSrc) {
+        include '*.proto'
+    }
+    into gravixStagedProtoImportDirProvider
+    eachFile(gravixProtoJavaNames)
+}
+
+// The filter above is code, which Gradle cannot fingerprint: declare this script as an input of both
+// staging tasks, so editing it re-runs the staging instead of reusing up-to-date/cached copies.
+def gravixProtoNamesScript = rootProject.file('gradle/gravix-proto-names.gradle')
+tasks.matching { it.name == 'stageProtoSources' || it.name == 'gravixStageProtoImports' }.configureEach {
+    inputs.file(gravixProtoNamesScript).withPathSensitivity(PathSensitivity.NONE)
+    rename { String n -> n.replaceFirst(/^livekit_/, 'gravixcloud_') }
+    // Copy never prunes its destination: without this, copies staged under an earlier name would be
+    // compiled again next to the renamed ones (duplicate definitions).
+    doFirst { task -> task.destinationDir.deleteDir() }
+}

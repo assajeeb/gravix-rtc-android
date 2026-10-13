@@ -1,0 +1,178 @@
+import org.jetbrains.kotlin.gradle.tasks.KaptGenerateStubs
+
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
+buildscript {
+    apply from: 'deps.gradle'
+    repositories {
+        google()
+        gradlePluginPortal()
+        mavenCentral()
+    }
+    dependencies {
+        classpath "com.android.tools.build:gradle:$android_build_tools_version"
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+        classpath "org.jetbrains.kotlin:kotlin-serialization:$kotlin_version"
+        classpath "org.jetbrains.dokka:dokka-gradle-plugin:$dokka_version"
+        classpath 'com.google.protobuf:protobuf-gradle-plugin:0.9.5'
+        classpath 'com.dicedmelon.gradle:jacoco-android:0.1.5'
+        classpath "com.diffplug.spotless:spotless-plugin-gradle:6.23.3"
+        // NOTE: Do not place your application dependencies here; they belong
+        // in the individual module build.gradle files
+    }
+}
+
+plugins {
+    // GRAVIX: Maven Central through the Central Portal (replaces upstream's gradle-mvn-push.gradle + nexus plugin,
+    // which publish through Sonatype's transitional OSSRH-compatibility service). 0.34.0 (2025-07-13) is the last
+    // line that runs on the inherited Gradle 8.9 / AGP 8.7.2 / Kotlin 1.9.25 (0.35 needs Gradle 8.13, 0.36+
+    // Gradle 9). Same plugin and property names as gravix-token-java (0.37.0 there: a Gradle 9 project).
+    id("com.vanniktech.maven.publish.base") version "0.34.0" apply false
+    alias(libs.plugins.detekt) apply false
+    // GRAVIX: public API dump (apiDump / apiCheck; `check` runs apiCheck). Applied in the published module only.
+    // 0.17.0 (2024-12-19) reads Kotlin 1.9 metadata and runs on Gradle 8.9.
+    id("org.jetbrains.kotlinx.binary-compatibility-validator") version "0.17.0" apply false
+}
+
+subprojects {
+    // Ignore examples folder, it's not a module itself.
+    if (project.name == "examples") {
+        return
+    }
+
+    def isDetektRulesModule = project.name == "gravix-rtc-detekt-rules"
+
+    apply plugin: "com.diffplug.spotless"
+    // GRAVIX(Phase 4): license headers by the header a file already has, so spotless never rewrites a Gravix header to
+    // the upstream holder's nor strips a "Modifications Copyright" line (upstream's single LicenseHeaderFile.txt did
+    // both). The upstream holder is read from LicenseHeaderFile.txt (this file must not spell it: the rebrand text pass
+    // rewrites it here):
+    //   upstream holder + "Modifications Copyright 2026 Gravity Compile" -> LicenseHeaderModifiedFile.txt (upstream
+    //       files the rebrand changed; the upstream copyright line is kept as is)
+    //   upstream holder only -> LicenseHeaderFile.txt (upstream, unchanged)
+    //   Gravity Compile -> LicenseHeaderGravixFile.txt (Gravix originals; a new Gravix file starts from this template)
+    // Files with another license or provenance header (vendored audioswitch, WebRTC-derived, ...) and files without a
+    // header are left alone. Years are never updated (spotless would otherwise extend the upstream years on ratchet).
+    // Run on demand: ./gradlew --no-configuration-cache spotlessCheck [-PspotlessRatchetFrom=<ref>|none].
+    def gxSpotlessDelimiter = '(package |@file|import )'
+    // a plain single-quoted pattern: in a /slashy/ string $YEAR would be interpolated as a Gradle property
+    def gxUpstreamHolder = (rootProject.file('LicenseHeaderFile.txt').getText('UTF-8') =~ 'Copyright \\$YEAR (.+)')[0][1].trim()
+    def gxHeaderClass = { File f ->
+        def text = f.getText('UTF-8')
+        def m = (text =~ /(?m)^(package |@file|import )/)
+        def header = m.find() ? text.substring(0, m.start()) : ''
+        // only Apache-2.0 headers are managed: a BSD (WebRTC-derived) or MIT file that carries a "Modifications Copyright
+        // ... Gravity Compile" line keeps its own license text (found by the Phase 4 all-files trial run)
+        if (!header.contains('Licensed under the Apache License, Version 2.0') || header.contains('Vendored from')) return 'other'
+        if (header.contains(gxUpstreamHolder) && header.contains('Modifications Copyright')) return 'modified'
+        if (header.contains(gxUpstreamHolder)) return 'upstream'
+        if (header =~ /Copyright \d{4}(-\d{4})? Gravity Compile/ && !header.contains('Modifications')) return 'gravix'
+        return 'other'
+    }
+    def gxSources = { ->
+        fileTree(projectDir) {
+            include 'src/*/java/**/*.kt', 'src/*/java/**/*.java'
+            exclude '**/ReentrantMutex.kt', '**/TextureViewRenderer.kt', '**/FlowDelegate.kt', '**/JainSdpUtils.kt'
+        }.files
+    }
+    // read the headers only when a spotless task was asked for (normal builds read no source file here)
+    def gxSpotlessRequested = gradle.startParameter.taskNames.any { it.toLowerCase().contains('spotless') }
+    def gxByClass = gxSpotlessRequested ? gxSources().groupBy { gxHeaderClass(it) } : [:]
+    def gxRatchet = project.findProperty('spotlessRatchetFrom') ?: 'origin/main'
+    spotless {
+        // GRAVIX(Phase 4): spotless is run on demand (./gradlew spotlessCheck in a regular clone), not by `check`:
+        // ratchetFrom needs a git repository with origin/main, which a worktree (JGit) and the public snapshot (no
+        // git) do not have, and `check` must build the samples everywhere.
+        enforceCheck false
+        // optional: limit format enforcement to just the files changed by this feature branch
+        // GRAVIX: -PspotlessRatchetFrom=<ref> (e.g. the fork point) or =none for every file
+        if (gxRatchet != 'none') {
+            ratchetFrom gxRatchet
+        }
+
+        format 'misc', {
+            // define the files to apply `misc` to
+            target '*.gradle', '*.md', '.gitignore'
+
+            // define the steps to apply to those files
+            trimTrailingWhitespace()
+            indentWithSpaces()
+            endWithNewline()
+        }
+        java {
+            // apply a specific flavor of google-java-format
+            googleJavaFormat('1.17.0').aosp().reflowLongStrings()
+            // fix formatting of type annotations
+            formatAnnotations()
+            // GRAVIX: the license header is the license* formats below
+            removeUnusedImports()
+            toggleOffOn()
+        }
+        kotlin {
+            target("src/*/java/**/*.kt")
+            targetExclude(
+                "src/*/java/**/ReentrantMutex.kt", // Different license
+                "src/*/java/**/TextureViewRenderer.kt", // Different license
+                "src/*/java/**/FlowDelegate.kt", // Different license
+                "src/*/java/**/JainSdpUtils.kt", // Different license
+                // GRAVIX: vendored audioswitch stays byte-identical to tools/vendor's output (reproducible vendoring)
+                "src/*/java/**/audioswitch/**",
+            )
+            ktlint("0.50.0")
+                .setEditorConfigPath("$rootDir/.editorconfig")
+            // GRAVIX: the license header is the license* formats below
+            endWithNewline()
+            toggleOffOn()
+        }
+        [
+            licenseUpstream: ['upstream', 'LicenseHeaderFile.txt'],
+            licenseModified: ['modified', 'LicenseHeaderModifiedFile.txt'],
+            licenseGravix  : ['gravix', 'LicenseHeaderGravixFile.txt'],
+        ].each { name, spec ->
+            def files = gxByClass[spec[0]] ?: []
+            format name, {
+                target(files.isEmpty() ? 'no-such-file-gravix' : files)
+                licenseHeaderFile(rootProject.file(spec[1]), gxSpotlessDelimiter).updateYearWithLatest(false)
+            }
+        }
+    }
+
+    if (!isDetektRulesModule) {
+        apply plugin: "io.gitlab.arturbosch.detekt"
+        detekt {
+            parallel = true
+            buildUponDefaultConfig = true
+            allRules = false
+            config.from(files("$rootDir/config/detekt/detekt.yml"))
+            reports {
+                html.required.set(true)
+                md.required.set(true)
+            }
+        }
+
+        dependencies {
+            detektPlugins project(":gravix-rtc-detekt-rules")
+        }
+
+        tasks.withType(io.gitlab.arturbosch.detekt.Detekt).configureEach {
+            pluginClasspath.setFrom(configurations.detektPlugins)
+        }
+    }
+
+    // From Gradle 8 onwards, Kapt no longer automatically picks up jvmTarget
+    // from normal KotlinOptions. Must be manually set.
+    // JvmToolchain should not be used since it changes the actual JDK used.
+    tasks.withType(KaptGenerateStubs).configureEach {
+        kotlinOptions {
+            jvmTarget = java_version
+        }
+    }
+
+}
+
+tasks.register('clean', Delete) {
+    delete rootProject.buildDir
+}
+
+group = GROUP
+version = VERSION_NAME
