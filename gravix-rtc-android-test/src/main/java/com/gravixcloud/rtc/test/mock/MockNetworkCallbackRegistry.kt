@@ -17,14 +17,30 @@
 
 package com.gravixcloud.rtc.test.mock
 
+import android.content.Context
+import android.net.ConnectivityManager
 import android.net.ConnectivityManager.NetworkCallback
 import android.net.NetworkRequest
+import androidx.test.core.app.ApplicationProvider
 import com.gravixcloud.rtc.room.network.NetworkCallbackRegistry
 
 class MockNetworkCallbackRegistry : NetworkCallbackRegistry {
     val networkCallbacks = mutableSetOf<NetworkCallback>()
+
+    /** GRAVIX: how many onAvailable calls the registrations delivered for networks that already existed. */
+    var initialAvailableCalls = 0
+        private set
+
     override fun registerNetworkCallback(networkRequest: NetworkRequest, networkCallback: NetworkCallback) {
         networkCallbacks.add(networkCallback)
+        // GRAVIX: as ConnectivityManager does, a new registration gets onAvailable at once for every network that
+        // already matches (here: the Robolectric ConnectivityManager's networks)
+        val cm = ApplicationProvider.getApplicationContext<Context>().getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        @Suppress("DEPRECATION")
+        cm?.allNetworks?.forEach { network ->
+            initialAvailableCalls++
+            networkCallback.onAvailable(network)
+        }
     }
 
     override fun unregisterNetworkCallback(networkCallback: NetworkCallback) {

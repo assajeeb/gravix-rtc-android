@@ -206,8 +206,22 @@ class MockPeerConnection(
         return true
     }
 
+    /** GRAVIX: what [getStats] delivers (null: an empty report), and how often it was asked. */
+    @Volatile
+    var statsReport: RTCStatsReport? = null
+
+    @Volatile
+    var statsRequests = 0
+        private set
+
+    /** GRAVIX: getStats never calls back (a request lost in libwebrtc). */
+    @Volatile
+    var statsNeverDelivers = false
+
     override fun getStats(callback: RTCStatsCollectorCallback?) {
-        callback?.onStatsDelivered(RTCStatsReport(0, emptyMap()))
+        statsRequests++
+        if (statsNeverDelivers) return
+        callback?.onStatsDelivered(statsReport ?: RTCStatsReport(0, emptyMap()))
     }
 
     override fun setBitrate(min: Int?, current: Int?, max: Int?): Boolean {

@@ -20,6 +20,7 @@
 package com.gravixcloud.rtc.room
 
 import android.content.Context
+import android.net.ConnectivityManager
 import android.net.ConnectivityManager.NetworkCallback
 import android.net.Network
 import androidx.annotation.VisibleForTesting
@@ -112,6 +113,7 @@ import org.webrtc.RtpReceiver
 import org.webrtc.SurfaceViewRenderer
 import org.webrtc.audio.AudioDeviceModule
 import java.net.URI
+import java.util.Collections
 import java.util.Date
 import java.util.concurrent.CopyOnWriteArrayList
 import javax.inject.Named
@@ -404,6 +406,26 @@ constructor(
         connectedUrlListeners.remove(listener)
     }
 
+    /**
+     * GRAVIX: how this session's media travels, from each peer connection's selected ICE candidate pair:
+     * [GravixIceTransport.TCP] when either connection runs over ICE/TCP, [GravixIceTransport.RELAY] when either is
+     * relayed, else [GravixIceTransport.UDP]. Null until the first reading, after the session ended, during a full
+     * rejoin until the new connections selected their pairs, or with [GravixRecoveryOptions.iceTransportWatchMs] off
+     * (turned off during a session, the last value stays). This getter is the source of truth: two quick changes'
+     * events may arrive in either order. Changes are [RoomEvent.IceTransportChanged]; a slow TCP
+     * session is [RoomEvent.SlowTcpTransport]. The Flutter SDK's `Room.selectedTransport` (0.4.18).
+     */
+    val selectedTransport: GravixIceTransport?
+        get() = engine.gravixIceWatch.transport
+
+    /** GRAVIX: the publisher connection's transport (see [selectedTransport]). */
+    val publisherTransport: GravixIceTransport?
+        get() = engine.gravixIceWatch.publisher
+
+    /** GRAVIX: the subscriber connection's transport (see [selectedTransport]). */
+    val subscriberTransport: GravixIceTransport?
+        get() = engine.gravixIceWatch.subscriber
+
     private fun gravixRegionFor(url: String): String? {
         gravixServerRegion?.let { return it }
         val known = gravixRegionHints +
@@ -679,7 +701,7 @@ constructor(
             connectedUrl = null
             connectedRegion = null
             gravixNoteConnectedUrl(RoomEvent.ConnectedUrlChangeReason.CONNECT)
-            networkCallbackManager.registerCallback()
+            gravixRegisterNetworkCallback()
             if (options.audio) {
                 var cancelPreconnect: (() -> Unit)? = null
 
@@ -1122,7 +1144,7 @@ constructor(
         if (state == State.RECONNECTING) {
             return
         }
-        engine.reconnect()
+        engine.gravixReconnect(RTCEngine.CAUSE_NETWORK) // GRAVIX: the cause is observation (RoomEvent.ReconnectAttempt)
     }
 
     private fun handleDisconnect(reason: DisconnectReason) {
@@ -1268,16 +1290,39 @@ constructor(
     }
 
     // ------------------------------------- NetworkCallback -------------------------------------//
+
+    /**
+     * GRAVIX: the networks that existed when the callback was registered. registerNetworkCallback answers at once with
+     * onAvailable for each of them: that is no change of the device's network (it would have counted every connect as
+     * one: resumeAfterNetworkSocketError, RoomEvent.ReconnectAttempt.afterNetworkChange).
+     */
+    private val gravixNetworksAtRegistration: MutableSet<Network> = Collections.synchronizedSet(HashSet())
+
+    private fun gravixRegisterNetworkCallback() {
+        gravixNetworksAtRegistration.clear()
+        try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            @Suppress("DEPRECATION") // allNetworks: the same set registerNetworkCallback announces
+            cm?.allNetworks?.let { gravixNetworksAtRegistration.addAll(it) }
+        } catch (e: Exception) {
+            GxLog.d(e) { "could not list the networks" }
+        }
+        networkCallbackManager.registerCallback()
+    }
+
     private val networkCallbackManager = networkCallbackManagerFactory.invoke(
         object : NetworkCallback() {
             override fun onLost(network: Network) {
                 // lost connection, flip to reconnecting
                 hasLostConnectivity = true
+                gravixNetworksAtRegistration.remove(network)
                 engine.gravixNoteNetworkChange() // GRAVIX: evidence for region failover
             }
 
             override fun onAvailable(network: Network) {
-                engine.gravixNoteNetworkChange() // GRAVIX: evidence for region failover
+                // GRAVIX: evidence for region failover / a network change; not the registration's own announcement of a
+                // network that was already there
+                if (!gravixNetworksAtRegistration.remove(network)) engine.gravixNoteNetworkChange()
                 // only actually reconnect after connection is re-established
                 if (!hasLostConnectivity) {
                     return
@@ -1343,6 +1388,36 @@ constructor(
      */
     override fun onEngineResumed() {
         eventBus.postEvent(RoomEvent.Resumed(this), coroutineScope)
+    }
+
+    /**
+     * GRAVIX: a reconnect attempt starts ([RoomEvent.ReconnectAttempt]).
+     * @suppress
+     */
+    override fun onEngineReconnectAttempt(full: Boolean, cause: String, attempt: Int, afterNetworkChange: Boolean) {
+        val mode = if (full) RoomEvent.ReconnectMode.FULL else RoomEvent.ReconnectMode.RESUME
+        eventBus.postEvent(RoomEvent.ReconnectAttempt(this, mode, cause, attempt, afterNetworkChange), coroutineScope)
+    }
+
+    /**
+     * GRAVIX: the session's ICE transport changed ([RoomEvent.IceTransportChanged]).
+     * @suppress
+     */
+    override fun onEngineIceTransportChanged(
+        transport: GravixIceTransport?,
+        previous: GravixIceTransport?,
+        publisher: GravixIceTransport?,
+        subscriber: GravixIceTransport?,
+    ) {
+        eventBus.postEvent(RoomEvent.IceTransportChanged(this, transport, previous, publisher, subscriber), coroutineScope)
+    }
+
+    /**
+     * GRAVIX: a slow ICE/TCP session ([RoomEvent.SlowTcpTransport]).
+     * @suppress
+     */
+    override fun onEngineSlowTcpTransport(rttMs: Long, overMs: Long) {
+        eventBus.postEvent(RoomEvent.SlowTcpTransport(this, rttMs, overMs), coroutineScope)
     }
 
     /**

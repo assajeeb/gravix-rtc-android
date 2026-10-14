@@ -19,6 +19,7 @@ package com.gravixcloud.rtc.events
 
 import com.gravixcloud.rtc.annotations.Beta
 import com.gravixcloud.rtc.e2ee.E2EEState
+import com.gravixcloud.rtc.room.GravixIceTransport
 import com.gravixcloud.rtc.room.Room
 import com.gravixcloud.rtc.room.participant.ConnectionQuality
 import com.gravixcloud.rtc.room.participant.LocalParticipant
@@ -70,6 +71,67 @@ sealed class RoomEvent(val room: Room) : Event() {
      * republished). Flutter SDK equivalent: the `RoomReconnectedEvent` that follows a `RoomResumingEvent`.
      */
     class Resumed(room: Room) : RoomEvent(room)
+
+    /**
+     * GRAVIX: a reconnect attempt starts (one per attempt, before its dial). Until now only a full rejoin was visible
+     * ([Reconnecting]); [Resuming] says a recovery started, this says what each attempt does. The Flutter SDK's
+     * `RoomReconnectAttemptEvent` (0.4.18).
+     *
+     * @property mode [ReconnectMode.RESUME] (the same session: a new signal connection and an ICE restart) or
+     *   [ReconnectMode.FULL] (a new session: the others may see this participant leave and join again).
+     * @property cause why the session is being recovered: `peerConnectionFailed`, `peerConnectionClosed`,
+     *   `peerConnectionDisconnected` (GravixRecoveryOptions.resumeOnPeerDisconnected), `signal` (the signal connection
+     *   closed or failed), `networkAvailable` (the device's network came back), `requested` (`reconnect()` called), and
+     *   `reconnectRetry` for every attempt after the first.
+     * @property attempt 1 for the first attempt of this outage.
+     * @property afterNetworkChange the device's network changed (lost or available) within
+     *   GravixRecoveryOptions.networkChangeWindowMs before the reconnect began, or since.
+     *
+     * Unlike the Flutter event there is no `reconnectReason`: this SDK sends none (the server reads RR_UNKNOWN).
+     */
+    class ReconnectAttempt(
+        room: Room,
+        val mode: ReconnectMode,
+        val cause: String,
+        val attempt: Int,
+        val afterNetworkChange: Boolean,
+    ) : RoomEvent(room) {
+        override fun toString(): String =
+            "ReconnectAttempt($mode, cause: $cause, attempt: $attempt, afterNetworkChange: $afterNetworkChange)"
+    }
+
+    /** GRAVIX: how a reconnect attempt recovers the session ([ReconnectAttempt.mode]). */
+    enum class ReconnectMode {
+        /** The same session: participants, subscriptions and published tracks stay on the server. */
+        RESUME,
+
+        /** A new session: a new join and new peer connections ([Reconnecting]); tracks are republished. */
+        FULL,
+    }
+
+    /**
+     * GRAVIX: the session's ICE transport changed ([Room.selectedTransport]): [transport] is TCP when either peer
+     * connection runs over ICE/TCP, RELAY when either is relayed, else UDP. A session that lands on TCP after a
+     * reconnect is often slow (see [SlowTcpTransport]). From libwebrtc's selected-candidate-pair callback
+     * (GravixRecoveryOptions.iceTransportWatchMs). The Flutter SDK's `RoomIceTransportChangedEvent` (0.4.18).
+     *
+     * @property publisher each connection's own transport (null: not known yet).
+     */
+    class IceTransportChanged(
+        room: Room,
+        val transport: GravixIceTransport?,
+        val previous: GravixIceTransport?,
+        val publisher: GravixIceTransport?,
+        val subscriber: GravixIceTransport?,
+    ) : RoomEvent(room)
+
+    /**
+     * GRAVIX: the session runs over ICE/TCP and its round trip ([rttMs], the selected pair's) stayed above
+     * GravixRecoveryOptions.slowTcpRttMs (1 s) for [overMs] (at least slowTcpForMs, 10 s). Once per episode (again
+     * after the round trip came back below the threshold). Media is likely frozen or very low quality; an app may show
+     * it or report it. The Flutter SDK's `RoomSlowTcpTransportEvent` (0.4.18).
+     */
+    class SlowTcpTransport(room: Room, val rttMs: Long, val overMs: Long) : RoomEvent(room)
 
     /**
      * Disconnected from room

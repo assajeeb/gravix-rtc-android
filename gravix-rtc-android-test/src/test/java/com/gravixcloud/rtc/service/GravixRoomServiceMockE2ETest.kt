@@ -17,6 +17,7 @@
 package com.gravixcloud.rtc.service
 
 import com.gravixcloud.rtc.events.DisconnectReason
+import com.gravixcloud.rtc.room.GravixIceTransport
 import com.gravixcloud.rtc.room.RETIRED_RTC_HOST
 import com.gravixcloud.rtc.room.RETIRED_RTC_URL
 import com.gravixcloud.rtc.room.ReconnectType
@@ -45,6 +46,9 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.webrtc.MockCandidatePairChangeEvent
+import org.webrtc.RTCStats
+import org.webrtc.RTCStatsReport
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -281,9 +285,49 @@ class GravixRoomServiceMockE2ETest : MockE2ETest() {
         service.disconnect()
         advanceUntilIdle()
         assertEquals(
-            listOf("joined:$remoteUid", "connected", "reconnecting:true", "reconnected:true", "disconnected"),
+            listOf(
+                "joined:$remoteUid",
+                "connected",
+                "reconnecting:true",
+                "attempt:resume:peerConnectionFailed:1:false",
+                "reconnected:true",
+                "disconnected",
+            ),
             java.calls.toList(),
         )
+    }
+
+    @Test
+    fun theTransportAndASlowTcpSessionReachAJavaListener() = runTest {
+        // GRAVIX (0.4.18 port): RoomEvent.IceTransportChanged / SlowTcpTransport through the facade, and its getters
+        val java = GravixRoomServiceJavaApiTest.RecordingListener()
+        service.addListener(java)
+        component.rtcEngine().gravixIceClock = { testScheduler.currentTime }
+        connectService(joinWithRemote)
+        val sub = getSubscriberPeerConnection()
+        sub.statsReport = RTCStatsReport(
+            0,
+            mapOf(
+                "T1" to RTCStats(0, "transport", "T1", mapOf("selectedCandidatePairId" to "CP1")),
+                "CP1" to RTCStats(0, "candidate-pair", "CP1", mapOf("localCandidateId" to "L1", "currentRoundTripTime" to 2.5)),
+                "L1" to RTCStats(0, "local-candidate", "L1", mapOf("candidateType" to "host", "protocol" to "tcp")),
+            ),
+        )
+        sub.observer!!.onSelectedCandidatePairChanged(MockCandidatePairChangeEvent.create(MockCandidatePairChangeEvent.TCP_HOST))
+        repeat(200) {
+            Thread.sleep(1)
+            testScheduler.advanceTimeBy(100)
+            testScheduler.runCurrent()
+        }
+        val selected = service.selectedTransport
+        val subscriber = service.subscriberTransport
+        val seen = java.calls.filter { it.startsWith("transport:") || it.startsWith("slowTcp:") }
+        room.disconnect() // stops the TCP round-trip reading (else the scheduler never goes idle)
+        testScheduler.runCurrent()
+        assertEquals(GravixIceTransport.TCP, selected)
+        assertEquals(GravixIceTransport.TCP, subscriber)
+        assertEquals(listOf("transport:null->TCP", "slowTcp:2500"), seen)
+        assertEquals(null, service.selectedTransport)
     }
 
     @Test

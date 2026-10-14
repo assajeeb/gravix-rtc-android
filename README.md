@@ -8,7 +8,7 @@ region failover and session recovery built in.
 - Packages: `com.gravixcloud.rtc` (Kotlin `Room` API), `com.gravixcloud.rtc.service` (`GravixRoomService`, the
   Java-first API)
 - minSdk 24, signalling protocol v13
-- Status: **0.1.0**, the first release, on Maven Central (see `CHANGELOG.md`)
+- Status: **0.1.1**, on Maven Central (see `CHANGELOG.md`)
 
 The engine is a white-labelled fork of the Apache-2.0 LiveKit Android SDK (v2.28.2); see `NOTICE` and
 `tools/rebrand/README.md`.
@@ -28,7 +28,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.gravixcloud:gravix-rtc-android:0.1.0")
+    implementation("com.gravixcloud:gravix-rtc-android:0.1.1")
 }
 ```
 
@@ -140,10 +140,11 @@ public class JavaCallActivity extends Activity {
 
 Other calls: `disconnect()`, `muteLocalAudio(mute)`, `setCameraEnabled`, `switchCamera()`, `muteRemoteAudio(uid,
 mute)`, `muteAllRemoteAudio`, `remoteVideoTrack(uid)`, `localVideoTrack()`, `getRemoteUids()`,
-`getConnectedRegion()`, and `getRoom()` for anything else. Listener callbacks: `onConnected`, `onUserJoined` /
+`getConnectedRegion()`, `getSelectedTransport()`, and `getRoom()` for anything else. Listener callbacks: `onConnected`, `onUserJoined` /
 `onUserOffline` (only real changes, also across a full rejoin), `onUserMuteAudio` / `onUserMuteVideo`,
 `onRemoteVideoTrack` / `onRemoteVideoTrackRemoved`, `onActiveSpeakers`, `onReconnecting(isResume)` /
-`onReconnected(isResume)`, `onConnectedUrlChanged(url, region)`, `onDataReceived`, `onDisconnected(reason, error)`.
+`onReconnected(isResume)`, `onReconnectAttempt`, `onConnectedUrlChanged(url, region)`, `onIceTransportChanged` /
+`onSlowTcpTransport`, `onDataReceived`, `onDisconnected(reason, error)`.
 `sample-app-java` is a runnable Java app (Java sources only).
 
 ## Reconnecting
@@ -155,6 +156,11 @@ mute)`, `muteAllRemoteAudio`, `remoteVideoTrack(uid)`, `localVideoTrack()`, `get
 | Recovery gave up | ... -> `Disconnected` | ... -> `onDisconnected` | `DISCONNECTED` |
 
 `Resuming` is emitted as soon as the drop is detected, also while the SDK waits for the device's network to return.
+Every attempt is `RoomEvent.ReconnectAttempt` (Java `onReconnectAttempt(isResume, cause, attempt,
+afterNetworkChange)`): resume or full, what started the recovery, the attempt number, and whether the device's
+network had just changed. How the media travels is `Room.selectedTransport` (UDP / TCP / RELAY;
+`RoomEvent.IceTransportChanged`, Java `onIceTransportChanged`); a session stuck on a slow ICE/TCP path is
+`RoomEvent.SlowTcpTransport` (Java `onSlowTcpTransport`).
 
 ## Region auto-pick
 
@@ -204,6 +210,9 @@ default; off = the upstream engine's behaviour; `GravixRecoveryOptions.UPSTREAM`
 | `signalDialCapMs` | 30 s | signal deadline for a fresh join on a slow path |
 | `silentHostFailFast` | on | no `/rtc/validate` after a dial that got no answer |
 | `resumeWaitsForLiveState` | on | a resume waits for the live connection state, not a stale observer |
+| `resumeAfterNetworkSocketError` + `networkChangeWindowMs` | on, 30 s | a resume lost to the device's network changing is resumed again (two in a row: full rejoin) |
+| `freshPeerFailedGraceMs` | 3 s | a new media connection whose first checks fail gets this long to connect before it counts as failed |
+| `iceTransportWatchMs` + `slowTcpRttMs` / `slowTcpForMs` | 5 s, 1 s / 10 s | `Room.selectedTransport` and the slow-TCP event (round trip read only while on TCP) |
 
 Logs never carry tokens (`GxLog.redactSecrets`, on by default).
 
@@ -212,7 +221,7 @@ Logs never carry tokens (`GxLog.redactSecrets`, on by default).
 | Path | What |
 |---|---|
 | `gravix-rtc-android-sdk/` | the SDK (`com.gravixcloud:gravix-rtc-android`); `api/` = the locked public API dump |
-| `gravix-rtc-android-camerax/`, `gravix-rtc-android-track-processors/` | optional add-on modules (not published in 0.1.0) |
+| `gravix-rtc-android-camerax/`, `gravix-rtc-android-track-processors/` | optional add-on modules (not published as of 0.1.1) |
 | `gravix-rtc-android-test/` | engine test harness and the unit tests (`./gradlew :gravix-rtc-android-test:testRelease`) |
 | `sample-app-basic/`, `sample-app-java/`, other `sample-app*/`, `examples/` | sample apps (Kotlin; `sample-app-java` is Java only) |
 | `protocol/` | upstream protobuf definitions (git submodule, unmodified; vendored into the public snapshot) |

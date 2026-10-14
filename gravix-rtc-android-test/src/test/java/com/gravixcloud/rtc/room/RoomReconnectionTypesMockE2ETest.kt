@@ -70,15 +70,18 @@ class RoomReconnectionTypesMockE2ETest(
         return when (reconnectType) {
             ReconnectType.FORCE_SOFT_RECONNECT -> {
                 // GRAVIX(Phase 4): a resume emits RoomEvent.Resuming/Resumed (upstream: nothing); see
-                // GravixResumeEventMockE2ETest
+                // GravixResumeEventMockE2ETest. GRAVIX(0.1.1): and one RoomEvent.ReconnectAttempt per attempt
+                // (GravixReconnectAttemptEventMockE2ETest)
                 listOf(
                     RoomEvent.Resuming::class.java,
+                    RoomEvent.ReconnectAttempt::class.java,
                     RoomEvent.Resumed::class.java,
                 )
             }
 
             ReconnectType.FORCE_FULL_RECONNECT -> {
                 listOf(
+                    RoomEvent.ReconnectAttempt::class.java, // GRAVIX(0.1.1)
                     RoomEvent.Reconnecting::class.java,
                     RoomEvent.Reconnected::class.java,
                 )

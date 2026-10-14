@@ -44,14 +44,13 @@ import com.gravixcloud.rtc.test.mock.MockNetworkCallbackRegistry
 import com.gravixcloud.rtc.test.mock.TestData
 import com.gravixcloud.rtc.test.mock.room.participant.TestRemoteParticipantFactory
 import com.gravixcloud.rtc.test.mock.room.util.MockConnectionWarmer
+import gravixcloud.GravixcloudRtc.JoinResponse
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
-import gravixcloud.GravixcloudRtc.JoinResponse
-import org.webrtc.EglBase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -70,6 +69,7 @@ import org.mockito.kotlin.doSuspendableAnswer
 import org.mockito.kotlin.stub
 import org.mockito.kotlin.whenever
 import org.robolectric.RobolectricTestRunner
+import org.webrtc.EglBase
 
 @ExperimentalCoroutinesApi
 @RunWith(RobolectricTestRunner::class)
@@ -221,7 +221,8 @@ class RoomTest {
             callback.onAvailable(network)
         }
 
-        Mockito.verify(rtcEngine).reconnect()
+        // GRAVIX(0.1.1): the engine's reconnect with its cause (RoomEvent.ReconnectAttempt)
+        Mockito.verify(rtcEngine).gravixReconnect(RTCEngine.CAUSE_NETWORK)
     }
 
     @Test

@@ -66,10 +66,15 @@ public final class com/gravixcloud/rtc/ConnectOptions {
 
 public final class com/gravixcloud/rtc/GravixRecoveryOptions {
 	public static final field Companion Lcom/gravixcloud/rtc/GravixRecoveryOptions$Companion;
+	public static final field DEFAULT_FRESH_PEER_FAILED_GRACE_MS J
+	public static final field DEFAULT_ICE_TRANSPORT_WATCH_MS J
+	public static final field DEFAULT_NETWORK_CHANGE_WINDOW_MS J
 	public static final field DEFAULT_NETWORK_WAIT_PROBE_INTERVAL_MS J
 	public static final field DEFAULT_RESUME_PRIMARY_DEADLINE_MS J
 	public static final field DEFAULT_SAME_URL_RETRY_DIAL_TIMEOUT_MS J
 	public static final field DEFAULT_SIGNAL_DIAL_CAP_MS J
+	public static final field DEFAULT_SLOW_TCP_FOR_MS J
+	public static final field DEFAULT_SLOW_TCP_RTT_MS J
 	public static final field UPSTREAM Lcom/gravixcloud/rtc/GravixRecoveryOptions;
 	public fun <init> ()V
 	public fun <init> (Z)V
@@ -89,7 +94,13 @@ public final class com/gravixcloud/rtc/GravixRecoveryOptions {
 	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;)V
 	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;Z)V
 	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZ)V
-	public synthetic fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZ)V
+	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJ)V
+	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;)V
+	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;)V
+	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;J)V
+	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJ)V
+	public synthetic fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Z
 	public final fun component10 ()Z
 	public final fun component11 ()Z
@@ -99,7 +110,13 @@ public final class com/gravixcloud/rtc/GravixRecoveryOptions {
 	public final fun component15 ()Ljava/lang/Long;
 	public final fun component16 ()Z
 	public final fun component17 ()Z
+	public final fun component18 ()Z
+	public final fun component19 ()J
 	public final fun component2 ()Z
+	public final fun component20 ()Ljava/lang/Long;
+	public final fun component21 ()Ljava/lang/Long;
+	public final fun component22 ()J
+	public final fun component23 ()J
 	public final fun component3 ()Ljava/lang/Long;
 	public final fun component4 ()Z
 	public final fun component5 ()Z
@@ -107,19 +124,23 @@ public final class com/gravixcloud/rtc/GravixRecoveryOptions {
 	public final fun component7 ()Z
 	public final fun component8 ()Z
 	public final fun component9 ()Ljava/lang/Long;
-	public final fun copy (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZ)Lcom/gravixcloud/rtc/GravixRecoveryOptions;
-	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/GravixRecoveryOptions;ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZILjava/lang/Object;)Lcom/gravixcloud/rtc/GravixRecoveryOptions;
+	public final fun copy (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJ)Lcom/gravixcloud/rtc/GravixRecoveryOptions;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/GravixRecoveryOptions;ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJILjava/lang/Object;)Lcom/gravixcloud/rtc/GravixRecoveryOptions;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getFailoverNeedsEvidence ()Z
+	public final fun getFreshPeerFailedGraceMs ()Ljava/lang/Long;
+	public final fun getIceTransportWatchMs ()Ljava/lang/Long;
 	public final fun getIgnoreStaleSignalFailures ()Z
 	public final fun getLastGoodRegionList ()Z
 	public final fun getLeaveAbortsResumeWait ()Z
 	public final fun getMeasuredRegionFailover ()Z
+	public final fun getNetworkChangeWindowMs ()J
 	public final fun getNetworkWaitProbeIntervalMs ()Ljava/lang/Long;
 	public final fun getRefusalEndsConnect ()Z
 	public final fun getRegionStrategyEnabled ()Z
 	public final fun getRejoinClearsFullRequest ()Z
 	public final fun getRestartAbortsOnSignalLoss ()Z
+	public final fun getResumeAfterNetworkSocketError ()Z
 	public final fun getResumeOnPeerDisconnected ()Z
 	public final fun getResumePrimaryDeadlineMs ()Ljava/lang/Long;
 	public final fun getResumeWaitsForLiveState ()Z
@@ -127,6 +148,8 @@ public final class com/gravixcloud/rtc/GravixRecoveryOptions {
 	public final fun getSameUrlRetryDialTimeoutMs ()Ljava/lang/Long;
 	public final fun getSignalDialCapMs ()Ljava/lang/Long;
 	public final fun getSilentHostFailFast ()Z
+	public final fun getSlowTcpForMs ()J
+	public final fun getSlowTcpRttMs ()J
 	public final fun getWaitForNetwork ()Z
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
@@ -1456,6 +1479,14 @@ public final class com/gravixcloud/rtc/events/RoomEvent$FailedToConnect : com/gr
 	public final fun getError ()Ljava/lang/Throwable;
 }
 
+public final class com/gravixcloud/rtc/events/RoomEvent$IceTransportChanged : com/gravixcloud/rtc/events/RoomEvent {
+	public fun <init> (Lcom/gravixcloud/rtc/room/Room;Lcom/gravixcloud/rtc/room/GravixIceTransport;Lcom/gravixcloud/rtc/room/GravixIceTransport;Lcom/gravixcloud/rtc/room/GravixIceTransport;Lcom/gravixcloud/rtc/room/GravixIceTransport;)V
+	public final fun getPrevious ()Lcom/gravixcloud/rtc/room/GravixIceTransport;
+	public final fun getPublisher ()Lcom/gravixcloud/rtc/room/GravixIceTransport;
+	public final fun getSubscriber ()Lcom/gravixcloud/rtc/room/GravixIceTransport;
+	public final fun getTransport ()Lcom/gravixcloud/rtc/room/GravixIceTransport;
+}
+
 public final class com/gravixcloud/rtc/events/RoomEvent$LocalTrackSubscribed : com/gravixcloud/rtc/events/RoomEvent {
 	public fun <init> (Lcom/gravixcloud/rtc/room/Room;Lcom/gravixcloud/rtc/room/track/LocalTrackPublication;Lcom/gravixcloud/rtc/room/participant/LocalParticipant;)V
 	public final fun getParticipant ()Lcom/gravixcloud/rtc/room/participant/LocalParticipant;
@@ -1505,6 +1536,23 @@ public final class com/gravixcloud/rtc/events/RoomEvent$ParticipantStateChanged 
 	public final fun getParticipant ()Lcom/gravixcloud/rtc/room/participant/Participant;
 }
 
+public final class com/gravixcloud/rtc/events/RoomEvent$ReconnectAttempt : com/gravixcloud/rtc/events/RoomEvent {
+	public fun <init> (Lcom/gravixcloud/rtc/room/Room;Lcom/gravixcloud/rtc/events/RoomEvent$ReconnectMode;Ljava/lang/String;IZ)V
+	public final fun getAfterNetworkChange ()Z
+	public final fun getAttempt ()I
+	public final fun getCause ()Ljava/lang/String;
+	public final fun getMode ()Lcom/gravixcloud/rtc/events/RoomEvent$ReconnectMode;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/events/RoomEvent$ReconnectMode : java/lang/Enum {
+	public static final field FULL Lcom/gravixcloud/rtc/events/RoomEvent$ReconnectMode;
+	public static final field RESUME Lcom/gravixcloud/rtc/events/RoomEvent$ReconnectMode;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/gravixcloud/rtc/events/RoomEvent$ReconnectMode;
+	public static fun values ()[Lcom/gravixcloud/rtc/events/RoomEvent$ReconnectMode;
+}
+
 public final class com/gravixcloud/rtc/events/RoomEvent$Reconnected : com/gravixcloud/rtc/events/RoomEvent {
 	public fun <init> (Lcom/gravixcloud/rtc/room/Room;)V
 }
@@ -1529,6 +1577,12 @@ public final class com/gravixcloud/rtc/events/RoomEvent$RoomMetadataChanged : co
 	public fun <init> (Lcom/gravixcloud/rtc/room/Room;Ljava/lang/String;Ljava/lang/String;)V
 	public final fun getNewMetadata ()Ljava/lang/String;
 	public final fun getPrevMetadata ()Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/events/RoomEvent$SlowTcpTransport : com/gravixcloud/rtc/events/RoomEvent {
+	public fun <init> (Lcom/gravixcloud/rtc/room/Room;JJ)V
+	public final fun getOverMs ()J
+	public final fun getRttMs ()J
 }
 
 public final class com/gravixcloud/rtc/events/RoomEvent$TrackE2EEStateEvent : com/gravixcloud/rtc/events/RoomEvent {
@@ -2298,6 +2352,15 @@ public abstract interface class com/gravixcloud/rtc/room/GravixConnectedUrlListe
 	public abstract fun onConnectedUrlChanged (Lcom/gravixcloud/rtc/events/RoomEvent$ConnectedUrlChanged;)V
 }
 
+public final class com/gravixcloud/rtc/room/GravixIceTransport : java/lang/Enum {
+	public static final field RELAY Lcom/gravixcloud/rtc/room/GravixIceTransport;
+	public static final field TCP Lcom/gravixcloud/rtc/room/GravixIceTransport;
+	public static final field UDP Lcom/gravixcloud/rtc/room/GravixIceTransport;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/gravixcloud/rtc/room/GravixIceTransport;
+	public static fun values ()[Lcom/gravixcloud/rtc/room/GravixIceTransport;
+}
+
 public final class com/gravixcloud/rtc/room/PeerConnectionTransportKt {
 	public static final fun ensureCodecBitrates (Landroid/javax/sdp/MediaDescription;Ljava/util/Map;)V
 	public static final fun ensureVideoDDExtensionForSVC (Landroid/javax/sdp/MediaDescription;)V
@@ -2537,15 +2600,18 @@ public final class com/gravixcloud/rtc/room/Room : com/gravixcloud/rtc/room/RTCE
 	public final fun getParticipantBySid (Ljava/lang/String;)Lcom/gravixcloud/rtc/room/participant/Participant;
 	public final fun getParticipantBySid-poXC0l0 (Ljava/lang/String;)Lcom/gravixcloud/rtc/room/participant/Participant;
 	public final fun getPublisherRTCStats (Lorg/webrtc/RTCStatsCollectorCallback;)V
+	public final fun getPublisherTransport ()Lcom/gravixcloud/rtc/room/GravixIceTransport;
 	public final fun getReconnectPolicy ()Lcom/gravixcloud/rtc/room/network/ReconnectPolicy;
 	public final fun getRemoteParticipants ()Ljava/util/Map;
 	public final fun getScreenShareTrackCaptureDefaults ()Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;
 	public final fun getScreenShareTrackPublishDefaults ()Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;
+	public final fun getSelectedTransport ()Lcom/gravixcloud/rtc/room/GravixIceTransport;
 	public final fun getServerInfo ()Lcom/gravixcloud/rtc/room/ServerInfo;
 	public final fun getSid-Zda1GPQ ()Ljava/lang/String;
 	public final fun getSid-k2vKd0s (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun getState ()Lcom/gravixcloud/rtc/room/Room$State;
 	public final fun getSubscriberRTCStats (Lorg/webrtc/RTCStatsCollectorCallback;)V
+	public final fun getSubscriberTransport ()Lcom/gravixcloud/rtc/room/GravixIceTransport;
 	public final fun getVideoTrackCaptureDefaults ()Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;
 	public final fun getVideoTrackPublishDefaults ()Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;
 	public fun handleDataChunk (Lgravixcloud/GravixcloudModels$DataStream$Chunk;Lgravixcloud/GravixcloudModels$Encryption$Type;)V
@@ -2561,10 +2627,13 @@ public final class com/gravixcloud/rtc/room/Room : com/gravixcloud/rtc/room/RTCE
 	public fun onDataStreamPacket (Lgravixcloud/GravixcloudModels$DataPacket;Lgravixcloud/GravixcloudModels$Encryption$Type;)V
 	public fun onEngineConnected ()V
 	public fun onEngineDisconnected (Lcom/gravixcloud/rtc/events/DisconnectReason;)V
+	public fun onEngineIceTransportChanged (Lcom/gravixcloud/rtc/room/GravixIceTransport;Lcom/gravixcloud/rtc/room/GravixIceTransport;Lcom/gravixcloud/rtc/room/GravixIceTransport;Lcom/gravixcloud/rtc/room/GravixIceTransport;)V
+	public fun onEngineReconnectAttempt (ZLjava/lang/String;IZ)V
 	public fun onEngineReconnected ()V
 	public fun onEngineReconnecting ()V
 	public fun onEngineResumed ()V
 	public fun onEngineResuming ()V
+	public fun onEngineSlowTcpTransport (JJ)V
 	public fun onFailToConnect (Ljava/lang/Throwable;)V
 	public fun onFullReconnecting ()V
 	public fun onJoinResponse (Lgravixcloud/GravixcloudRtc$JoinResponse;)V
@@ -4826,8 +4895,11 @@ public final class com/gravixcloud/rtc/service/GravixRoomService {
 	public final fun getConnectedUrl ()Ljava/lang/String;
 	public final fun getConnectionState ()Lcom/gravixcloud/rtc/room/Room$State;
 	public final fun getLocalUid ()Ljava/lang/String;
+	public final fun getPublisherTransport ()Lcom/gravixcloud/rtc/room/GravixIceTransport;
 	public final fun getRemoteUids ()Ljava/util/List;
 	public final fun getRoom ()Lcom/gravixcloud/rtc/room/Room;
+	public final fun getSelectedTransport ()Lcom/gravixcloud/rtc/room/GravixIceTransport;
+	public final fun getSubscriberTransport ()Lcom/gravixcloud/rtc/room/GravixIceTransport;
 	public final fun initVideoRenderer (Lcom/gravixcloud/rtc/renderer/SurfaceViewRenderer;)V
 	public final fun initVideoRenderer (Lcom/gravixcloud/rtc/renderer/TextureViewRenderer;)V
 	public final fun localVideoTrack ()Lcom/gravixcloud/rtc/room/track/LocalVideoTrack;
@@ -4851,10 +4923,13 @@ public abstract class com/gravixcloud/rtc/service/GravixRoomServiceListener {
 	public fun onConnectionStateChanged (Lcom/gravixcloud/rtc/room/Room$State;)V
 	public fun onDataReceived (Ljava/lang/String;Ljava/lang/String;[B)V
 	public fun onDisconnected (Lcom/gravixcloud/rtc/events/DisconnectReason;Ljava/lang/Throwable;)V
+	public fun onIceTransportChanged (Lcom/gravixcloud/rtc/room/GravixIceTransport;Lcom/gravixcloud/rtc/room/GravixIceTransport;)V
+	public fun onReconnectAttempt (ZLjava/lang/String;IZ)V
 	public fun onReconnected (Z)V
 	public fun onReconnecting (Z)V
 	public fun onRemoteVideoTrack (Ljava/lang/String;Lcom/gravixcloud/rtc/room/track/VideoTrack;)V
 	public fun onRemoteVideoTrackRemoved (Ljava/lang/String;)V
+	public fun onSlowTcpTransport (JJ)V
 	public fun onUserJoined (Ljava/lang/String;)V
 	public fun onUserMuteAudio (Ljava/lang/String;Z)V
 	public fun onUserMuteVideo (Ljava/lang/String;Z)V

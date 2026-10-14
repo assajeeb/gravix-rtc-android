@@ -30,6 +30,9 @@ import com.gravixcloud.rtc.test.util.toPBByteString
 import com.gravixcloud.rtc.util.TimeoutException
 import com.gravixcloud.rtc.util.flow
 import com.gravixcloud.rtc.util.toOkioByteString
+import gravixcloud.GravixcloudModels
+import gravixcloud.GravixcloudModels.DataPacket
+import gravixcloud.GravixcloudRtc
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
@@ -39,10 +42,6 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
-import gravixcloud.GravixcloudModels
-import gravixcloud.GravixcloudModels.DataPacket
-import gravixcloud.GravixcloudRtc
-import org.webrtc.PeerConnection
 import org.junit.Assert
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -52,6 +51,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.webrtc.PeerConnection
 
 @ExperimentalCoroutinesApi
 @RunWith(RobolectricTestRunner::class)
@@ -393,6 +393,9 @@ class RTCEngineMockE2ETest : MockE2ETest() {
         val oldWs = wsFactory.ws
 
         val pubPeerConnection = getPublisherPeerConnection()
+        // GRAVIX(0.1.1, freshPeerFailedGraceMs): a publisher that never connected gets 3 s to connect before its FAILED
+        // reconnects (GravixFreshPeerFailedGraceMockE2ETest); this one was connected
+        pubPeerConnection.moveToIceConnectionState(PeerConnection.IceConnectionState.CONNECTED)
         pubPeerConnection.moveToIceConnectionState(PeerConnection.IceConnectionState.FAILED)
         testScheduler.advanceTimeBy(1000)
 

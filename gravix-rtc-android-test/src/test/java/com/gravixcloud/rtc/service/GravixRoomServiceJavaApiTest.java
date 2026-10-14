@@ -26,6 +26,7 @@ import com.gravixcloud.rtc.GravixRtc;
 import com.gravixcloud.rtc.RoomOptions;
 import com.gravixcloud.rtc.events.DisconnectReason;
 import com.gravixcloud.rtc.renderer.SurfaceViewRenderer;
+import com.gravixcloud.rtc.room.GravixIceTransport;
 import com.gravixcloud.rtc.room.RetiredServerException;
 import com.gravixcloud.rtc.room.Room;
 import com.gravixcloud.rtc.room.track.LocalVideoTrack;
@@ -95,6 +96,10 @@ public class GravixRoomServiceJavaApiTest {
         Room.State state = service.getConnectionState();
         String url = service.getConnectedUrl();
         String region = service.getConnectedRegion();
+        GravixIceTransport transport = service.getSelectedTransport();
+        GravixIceTransport publisherTransport = service.getPublisherTransport();
+        GravixIceTransport subscriberTransport = service.getSubscriberTransport();
+        boolean onTcp = transport == GravixIceTransport.TCP;
         Room room = service.getRoom();
         CompletableFuture<Void> left = service.disconnect();
         service.release();
@@ -127,6 +132,21 @@ public class GravixRoomServiceJavaApiTest {
         @Override
         public void onDisconnected(DisconnectReason reason, Throwable error) {
             calls.add("disconnected");
+        }
+
+        @Override
+        public void onReconnectAttempt(boolean isResume, String cause, int attempt, boolean afterNetworkChange) {
+            calls.add("attempt:" + (isResume ? "resume" : "full") + ":" + cause + ":" + attempt + ":" + afterNetworkChange);
+        }
+
+        @Override
+        public void onIceTransportChanged(GravixIceTransport transport, GravixIceTransport previous) {
+            calls.add("transport:" + previous + "->" + transport);
+        }
+
+        @Override
+        public void onSlowTcpTransport(long rttMs, long overMs) {
+            calls.add("slowTcp:" + rttMs);
         }
     }
 

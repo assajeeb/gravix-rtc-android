@@ -38,6 +38,7 @@ import com.gravixcloud.rtc.room.participant.Participant
 import com.gravixcloud.rtc.room.participant.ParticipantTrackPermission
 import com.gravixcloud.rtc.room.track.TrackException
 import com.gravixcloud.rtc.room.util.MediaConstraintKeys
+import com.gravixcloud.rtc.room.util.PeerConnectionStateObservable
 import com.gravixcloud.rtc.room.util.createAnswer
 import com.gravixcloud.rtc.room.util.setLocalDescription
 import com.gravixcloud.rtc.room.util.waitUntilConnected
@@ -62,6 +63,7 @@ import com.gravixcloud.rtc.webrtc.isConnected
 import com.gravixcloud.rtc.webrtc.isDisconnected
 import com.gravixcloud.rtc.webrtc.peerconnection.RTCThreadToken
 import com.gravixcloud.rtc.webrtc.peerconnection.executeBlockingOnRTCThread
+import com.gravixcloud.rtc.webrtc.peerconnection.executeOnRTCThread
 import com.gravixcloud.rtc.webrtc.peerconnection.launchBlockingOnRTCThread
 import com.gravixcloud.rtc.webrtc.toProtoSessionDescription
 import com.vdurmont.semver4j.Semver
@@ -79,6 +81,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -141,7 +144,12 @@ internal constructor(
         when (newVal) {
             ConnectionState.CONNECTED -> {
                 signalSessionState = SignalSessionState(ended = false)
-                if (oldVal == ConnectionState.DISCONNECTED || oldVal == ConnectionState.CONNECTING) {
+                if (oldVal == ConnectionState.DISCONNECTED && gravixFullRejoinRunning && gravixRecovery.freshPeerFailedGraceMs != null) {
+                    // GRAVIX (freshPeerFailedGraceMs): a rejoin's new primary that failed (longer than the grace) and
+                    // then connected within the rejoin's wait: this is the rejoin's reconnect, not a new connect
+                    GxLog.d { "primary ICE connected (full rejoin, after a FAILED)" }
+                    listener?.onEngineReconnected()
+                } else if (oldVal == ConnectionState.DISCONNECTED || oldVal == ConnectionState.CONNECTING) {
                     GxLog.d { "primary ICE connected" }
                     listener?.onEngineConnected()
                 } else if (oldVal == ConnectionState.RECONNECTING) {
@@ -155,7 +163,7 @@ internal constructor(
             ConnectionState.DISCONNECTED -> {
                 GxLog.d { "primary ICE disconnected" }
                 if (oldVal == ConnectionState.CONNECTED) {
-                    reconnect()
+                    gravixReconnect(gravixPrimaryDownCause) // GRAVIX: the cause is observation (RoomEvent.ReconnectAttempt)
                 }
             }
 
@@ -169,6 +177,10 @@ internal constructor(
 
     @Volatile
     private var reconnectingJob: Job? = null
+
+    /** GRAVIX (freshPeerFailedGraceMs): a reconnect's full rejoin is running (until that reconnect ends). */
+    @Volatile
+    private var gravixFullRejoinRunning = false
 
     /**
      * Replaced at each signal session boundary. Sender handles retain the state that owned their
@@ -242,7 +254,148 @@ internal constructor(
         if (newState != PeerConnection.PeerConnectionState.DISCONNECTED || !gravixRecovery.resumeOnPeerDisconnected) return
         if (connectionState != ConnectionState.CONNECTED) return
         GxLog.i { "$which peer connection DISCONNECTED: reconnecting now (resumeOnPeerDisconnected)" }
-        reconnect()
+        gravixReconnect(CAUSE_PEER_DISCONNECTED)
+    }
+
+    /** GRAVIX: what the primary connection's last FAILED / CLOSED was (the cause of the reconnect it starts). */
+    @Volatile
+    private var gravixPrimaryDownCause = CAUSE_PEER_CLOSED
+
+    private fun PeerConnection.PeerConnectionState.gravixDownCause() =
+        if (this == PeerConnection.PeerConnectionState.FAILED) CAUSE_PEER_FAILED else CAUSE_PEER_CLOSED
+
+    /**
+     * GRAVIX (GravixRecoveryOptions.networkChangeWindowMs): the device's network changed (a network lost or available)
+     * within the window before [reconnectStartMs] (now, when null), or since.
+     */
+    private fun gravixNetworkChangedRecently(reconnectStartMs: Long?): Boolean {
+        val at = gravixLastNetworkChangeAt
+        if (at == 0L) return false
+        val ref = reconnectStartMs ?: SystemClock.elapsedRealtime()
+        return at >= ref - gravixRecovery.networkChangeWindowMs
+    }
+
+    /**
+     * GRAVIX (GravixRecoveryOptions.resumeAfterNetworkSocketError): the resume's dial failed with a socket error -- no
+     * answer from the server (no HTTP status), an I/O failure, not the signal deadline -- while the device's network
+     * changed within the window or reads offline: the interface went away under the dial, the session is still on the
+     * server.
+     */
+    private fun gravixResumeDialLostToTheNetwork(e: Exception, reconnectStartMs: Long): Boolean {
+        if (!gravixRecovery.resumeAfterNetworkSocketError || client.gravixLastFailureStatus != null) return false
+        if (generateSequence<Throwable>(e) { it.cause }.take(MAX_CAUSE_DEPTH).none { it is java.io.IOException }) return false
+        return gravixNetworkChangedRecently(reconnectStartMs) || !gravixNetworkCheck()
+    }
+
+    /**
+     * GRAVIX (GravixRecoveryOptions.freshPeerFailedGraceMs): a FAILED of [transport], a connection that has never
+     * connected, waits for it to connect for the grace; [action] (what the FAILED does upstream) runs on the RTC thread
+     * only when it did not, and it is still this engine's connection. Returns false (act now) when the switch is off.
+     */
+    private fun gravixDeferFreshFailure(
+        transport: PeerConnectionTransport?,
+        observer: PeerConnectionStateObservable,
+        which: String,
+        action: () -> Unit,
+    ): Boolean {
+        val grace = gravixRecovery.freshPeerFailedGraceMs?.takeIf { it > 0 } ?: return false
+        if (transport == null) return false
+        GxLog.i { "$which connection FAILED before it ever connected: waiting $grace ms for it (freshPeerFailedGrace)" }
+        coroutineScope.launch {
+            val connected = withTimeoutOrNull(grace) { observer::connectionState.flow.first { it.isConnected() } } != null
+            if (isClosed || (transport !== publisher && transport !== subscriber)) return@launch
+            if (connected) {
+                GxLog.i { "$which connection connected after its transient FAILED: nothing to recover" }
+                return@launch
+            }
+            GxLog.i { "$which connection still not connected $grace ms after its FAILED" }
+            executeOnRTCThread(rtcThreadToken) {
+                // it may have connected between the timeout and this hop: then there is nothing to act on
+                if ((transport === publisher || transport === subscriber) && !observer.connectionState.isConnected()) action()
+            }
+        }
+        return true
+    }
+
+    /** GRAVIX (iceTransportWatchMs): the slow-TCP episode's clock (replaceable in tests). */
+    internal var gravixIceClock: () -> Long = { SystemClock.elapsedRealtime() }
+
+    /**
+     * The primary connection's state listener: the engine's [connectionState] follows it. GRAVIX: a FAILED of a
+     * connection that never connected waits for it (freshPeerFailedGraceMs); DISCONNECTED resumes
+     * (resumeOnPeerDisconnected).
+     */
+    private fun gravixPrimaryStateListener(
+        transport: PeerConnectionTransport?,
+        observer: PeerConnectionStateObservable,
+    ): PeerConnectionStateListener {
+        var everConnected = false
+        return { newState ->
+            GxLog.v { "onIceConnection new state: $newState" }
+            if (newState.isConnected()) {
+                everConnected = true
+                connectionState = ConnectionState.CONNECTED
+            } else if (newState.isDisconnected()) {
+                val down = {
+                    gravixPrimaryDownCause = newState.gravixDownCause()
+                    connectionState = ConnectionState.DISCONNECTED
+                }
+                val deferred = newState == PeerConnection.PeerConnectionState.FAILED && !everConnected &&
+                    gravixDeferFreshFailure(transport, observer, "primary", down)
+                if (!deferred) down()
+            } else {
+                gravixOnPeerDisconnected(newState, "primary")
+            }
+        }
+    }
+
+    /**
+     * Subscriber-primary mode: the publisher's FAILED / CLOSED reconnects (upstream). GRAVIX: a FAILED of a publisher
+     * that never connected waits for it (freshPeerFailedGraceMs); DISCONNECTED resumes (resumeOnPeerDisconnected).
+     */
+    private fun gravixSecondaryPublisherListener(transport: PeerConnectionTransport?): PeerConnectionStateListener {
+        var everConnected = false
+        return { newState ->
+            if (newState.isConnected()) everConnected = true
+            if (newState.isDisconnected()) {
+                val cause = newState.gravixDownCause()
+                val deferred = newState == PeerConnection.PeerConnectionState.FAILED && !everConnected &&
+                    gravixDeferFreshFailure(transport, publisherObserver, "publisher") { gravixReconnect(cause) }
+                if (!deferred) gravixReconnect(cause)
+            } else {
+                gravixOnPeerDisconnected(newState, "publisher")
+            }
+        }
+    }
+
+    /**
+     * GRAVIX (GravixRecoveryOptions.iceTransportWatchMs): the session's ICE transport (Room.selectedTransport), from
+     * each connection's selected candidate pair; the round trip is read only while on ICE/TCP.
+     */
+    internal val gravixIceWatch = GravixIceTransportWatch(
+        settings = { gravixRecovery },
+        steady = { connectionState == ConnectionState.CONNECTED && reconnectingJob?.isActive != true },
+        readStats = { isPublisher -> gravixConnectedStats(if (isPublisher) publisher else subscriber) },
+        now = { gravixIceClock() },
+        onChanged = { transport, previous, pub, sub -> listener?.onEngineIceTransportChanged(transport, previous, pub, sub) },
+        onSlowTcp = { rttMs, overMs -> listener?.onEngineSlowTcpTransport(rttMs, overMs) },
+    )
+
+    /** One RTC-thread hop: the connection's stats when it is connected, else null. */
+    private suspend fun gravixConnectedStats(transport: PeerConnectionTransport?): RTCStatsReport? {
+        if (transport == null) return null
+        return transport.withPeerConnection {
+            if (!isConnected()) {
+                null
+            } else {
+                suspendCancellableCoroutine { cont -> getStats { report -> if (cont.isActive) cont.resume(report) } }
+            }
+        }
+    }
+
+    /** GRAVIX: libwebrtc selected a candidate pair on the publisher / subscriber connection. */
+    internal fun gravixOnSelectedCandidatePair(isPublisher: Boolean, local: IceCandidate?) {
+        gravixIceWatch.onSelectedPair(isPublisher, GravixIceTransport.ofCandidateSdp(local?.sdp))
     }
 
     /**
@@ -423,6 +576,7 @@ internal constructor(
         isSubscriberPrimary = joinResponse.subscriberPrimary
 
         configure(joinResponse, options)
+        gravixIceWatch.start(this@RTCEngine.coroutineScope) // GRAVIX (iceTransportWatchMs): no-op when off or running
 
         // create offer
         if (!isSubscriberPrimary || joinResponse.fastPublish) {
@@ -466,15 +620,11 @@ internal constructor(
                     null,
                 )
 
-                val connectionStateListener: PeerConnectionStateListener = { newState ->
-                    GxLog.v { "onIceConnection new state: $newState" }
-                    if (newState.isConnected()) {
-                        connectionState = ConnectionState.CONNECTED
-                    } else if (newState.isDisconnected()) {
-                        connectionState = ConnectionState.DISCONNECTED
-                    } else {
-                        gravixOnPeerDisconnected(newState, "primary") // GRAVIX (resumeOnPeerDisconnected)
-                    }
+                // GRAVIX (freshPeerFailedGraceMs): the listeners track whether their connection ever connected
+                val connectionStateListener = if (joinResponse.subscriberPrimary) {
+                    gravixPrimaryStateListener(subscriber, subscriberObserver)
+                } else {
+                    gravixPrimaryStateListener(publisher, publisherObserver)
                 }
 
                 if (joinResponse.subscriberPrimary) {
@@ -490,13 +640,7 @@ internal constructor(
 
                     subscriberObserver.connectionChangeListener = connectionStateListener
                     // Also reconnect on publisher disconnect
-                    publisherObserver.connectionChangeListener = { newState ->
-                        if (newState.isDisconnected()) {
-                            reconnect()
-                        } else {
-                            gravixOnPeerDisconnected(newState, "publisher") // GRAVIX (resumeOnPeerDisconnected)
-                        }
-                    }
+                    publisherObserver.connectionChangeListener = gravixSecondaryPublisherListener(publisher)
                 } else {
                     publisherObserver.connectionChangeListener = connectionStateListener
                 }
@@ -629,6 +773,7 @@ internal constructor(
         endSignalSession()
         abortPendingPublishTracks()
         closeResources(reason)
+        gravixIceWatch.stop() // GRAVIX (iceTransportWatchMs): after the PCs are gone; late callbacks are ignored
         connectionState = ConnectionState.DISCONNECTED
 
         synchronized(reliableStateLock) {
@@ -694,9 +839,15 @@ internal constructor(
     /**
      * reconnect Signal and PeerConnections
      */
-    @Synchronized
     @VisibleForTesting(otherwise = VisibleForTesting.PACKAGE_PRIVATE)
-    fun reconnect() {
+    fun reconnect() = gravixReconnect(CAUSE_REQUESTED)
+
+    /**
+     * GRAVIX: [reconnect] with what started it ([cause]: observation only,
+     * [RoomEvent.ReconnectAttempt][com.gravixcloud.rtc.events.RoomEvent.ReconnectAttempt]).
+     */
+    @Synchronized
+    internal fun gravixReconnect(cause: String) {
         if (reconnectingJob?.isActive == true) {
             GxLog.d { "Reconnection is already in progress" }
             return
@@ -739,12 +890,19 @@ internal constructor(
             val reconnectSessionUrl = url!!
             var lastRefused = false
             var gravixLastWasResume = false
+            // GRAVIX (resumeAfterNetworkSocketError): the last resume's dial failed with a socket error during a
+            // network change, and how many resumes in a row did so
+            var gravixResumeAfterSocketError = false
+            var gravixSocketErrorResumes = 0
 
             for (retries in 0 until MAX_RECONNECT_RETRIES) {
                 // GRAVIX (waitForNetwork): no attempt (and no back-off) while the device has no network; a resume that
                 // failed because the network went away is tried again when it is back (not spent offline)
                 val gravixWaitedForNetwork = gravixRecovery.waitForNetwork && gravixAwaitNetwork(reconnectStartTime, url)
-                val gravixResumeAgain = gravixWaitedForNetwork && gravixLastWasResume && reconnectType == ReconnectType.DEFAULT
+                val gravixAfterSocketError = gravixResumeAfterSocketError && reconnectType == ReconnectType.DEFAULT
+                gravixResumeAfterSocketError = false
+                val gravixResumeAgain =
+                    (gravixWaitedForNetwork && gravixLastWasResume && reconnectType == ReconnectType.DEFAULT) || gravixAfterSocketError
                 if (gravixResumeAgain) GxLog.i { "reconnect: the resume failed as the network went away; resuming again" }
                 // First try use previously valid url.
                 if (retries != 0) {
@@ -807,11 +965,21 @@ internal constructor(
                     ReconnectType.FORCE_FULL_RECONNECT -> true
                 }
                 gravixLastWasResume = !isFullReconnect // GRAVIX (waitForNetwork)
+                if (isFullReconnect) gravixSocketErrorResumes = 0
+                // GRAVIX: every attempt is reported (RoomEvent.ReconnectAttempt); observation only
+                listener?.onEngineReconnectAttempt(
+                    full = isFullReconnect,
+                    cause = if (retries == 0) cause else CAUSE_RETRY,
+                    attempt = retries + 1,
+                    afterNetworkChange = gravixNetworkChangedRecently(reconnectStartTime),
+                )
 
                 var lastMessageSeq: Int? = null
                 val connectOptions = connectOptions ?: ConnectOptions()
                 if (isFullReconnect) {
                     GxLog.v { "Attempting full reconnect." }
+                    gravixIceWatch.resetSession() // GRAVIX (iceTransportWatchMs): a new session, new transports
+                    gravixFullRejoinRunning = true // GRAVIX (freshPeerFailedGraceMs)
 
                     if (!hasReconnectedOnce) {
                         hasReconnectedOnce = true
@@ -853,6 +1021,20 @@ internal constructor(
                         e.rethrowIfCancellationSignal()
                         GxLog.w(e) { "Error during reconnection." }
                         lastRefused = client.gravixLastFailureStatus.let { it == 401 || it == 403 } // GRAVIX
+                        // GRAVIX (resumeAfterNetworkSocketError): a dial lost to the device's network changing keeps
+                        // the next attempt a resume; two in a row still become a full rejoin
+                        if (gravixResumeDialLostToTheNetwork(e, reconnectStartTime)) {
+                            gravixSocketErrorResumes++
+                            if (gravixSocketErrorResumes >= SOCKET_ERROR_RESUMES_BEFORE_FULL) {
+                                GxLog.i { "resume dial failed $gravixSocketErrorResumes times during a network change; full rejoin next" }
+                                gravixSocketErrorResumes = 0
+                            } else {
+                                GxLog.i { "resume dial failed during a network change (${e.message}); resuming again" }
+                                gravixResumeAfterSocketError = true
+                            }
+                        } else {
+                            gravixSocketErrorResumes = 0
+                        }
                         // ws reconnect failed, retry.
                         continue
                     }
@@ -961,6 +1143,7 @@ internal constructor(
 
         reconnectingJob = job
         job.invokeOnCompletion {
+            gravixFullRejoinRunning = false // GRAVIX
             if (reconnectingJob == job) {
                 reconnectingJob = null
             }
@@ -1271,6 +1454,20 @@ internal constructor(
         fun onEngineReconnecting()
         fun onEngineResuming() {}
         fun onEngineResumed() {}
+
+        /** GRAVIX: a reconnect attempt starts (before its dial). */
+        fun onEngineReconnectAttempt(full: Boolean, cause: String, attempt: Int, afterNetworkChange: Boolean) {}
+
+        /** GRAVIX (iceTransportWatchMs): the session's ICE transport changed. */
+        fun onEngineIceTransportChanged(
+            transport: GravixIceTransport?,
+            previous: GravixIceTransport?,
+            publisher: GravixIceTransport?,
+            subscriber: GravixIceTransport?,
+        ) {}
+
+        /** GRAVIX (iceTransportWatchMs): a TCP session's round trip stayed above slowTcpRttMs for slowTcpForMs. */
+        fun onEngineSlowTcpTransport(rttMs: Long, overMs: Long) {}
         fun onEngineDisconnected(reason: DisconnectReason)
         fun onFailToConnect(error: Throwable)
         fun onJoinResponse(response: JoinResponse)
@@ -1325,6 +1522,17 @@ internal constructor(
         private const val MAX_ICE_CONNECT_TIMEOUT_MS = 20000
         private const val NETWORK_CHECK_MS = 250L // GRAVIX (waitForNetwork)
         private const val LIVE_STATE_POLL_MS = 50L // GRAVIX (resumeWaitsForLiveState)
+        private const val SOCKET_ERROR_RESUMES_BEFORE_FULL = 2 // GRAVIX (resumeAfterNetworkSocketError)
+        private const val MAX_CAUSE_DEPTH = 8 // GRAVIX
+
+        // GRAVIX: RoomEvent.ReconnectAttempt causes (the Flutter SDK's ClientDisconnectReason names where one exists)
+        internal const val CAUSE_PEER_FAILED = "peerConnectionFailed"
+        internal const val CAUSE_PEER_CLOSED = "peerConnectionClosed"
+        internal const val CAUSE_PEER_DISCONNECTED = "peerConnectionDisconnected"
+        internal const val CAUSE_SIGNAL = "signal"
+        internal const val CAUSE_NETWORK = "networkAvailable"
+        internal const val CAUSE_RETRY = "reconnectRetry"
+        internal const val CAUSE_REQUESTED = "requested"
 
         private const val DATA_CHANNEL_LOW_THRESHOLD = 2 * 1024 * 1024 // 2 MB
 
@@ -1460,7 +1668,7 @@ internal constructor(
         gravixEndReconnectWait?.invoke("the signal socket closed ($code)") // GRAVIX (leaveAbortsResumeWait / restartAbortsOnSignalLoss)
         endSignalSession()
         abortPendingPublishTracks()
-        reconnect()
+        gravixReconnect(CAUSE_SIGNAL)
     }
 
     override fun onRemoteMuteChanged(trackSid: String, muted: Boolean) {

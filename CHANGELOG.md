@@ -2,6 +2,74 @@
 
 Upstream (LiveKit Android SDK) history up to the fork point: `doc/upstream/CHANGELOG.md`.
 
+## 0.1.1 (2026-10-15)
+
+Recovery after a phone's network change, ported from the Flutter SDK 0.4.18 where the hazard exists in this
+engine (found with tests on the mock engine first). The new switches are in `GravixRecoveryOptions`, on by
+default; off = the 0.1.0 behaviour; `GravixRecoveryOptions.UPSTREAM` turns them off. The events and getters are
+observation only.
+
+### Fixed: a short network drop resumes the session instead of rejoining it
+- `resumeAfterNetworkSocketError` (on): a resume whose dial failed with a socket error (no answer from the server:
+  the interface going away under the dial) while the device's network changed -- within `networkChangeWindowMs`
+  (30 s) before the reconnect began, or since -- or reads offline, makes the next attempt a resume again instead
+  of a full rejoin; two such failed resumes in a row still become a full rejoin. In 0.1.0 every attempt after the
+  first was full unless the network reading said offline at that moment: a dial made as the Wi-Fi went away (the
+  reading still said Wi-Fi) made the next attempt a full rejoin, and the others saw the participant leave and
+  join. A socket error on a steady network, a refusal and a timed-out resume are a full rejoin as before.
+- A network change is a network lost, or one that became available after the connect: the networks that already
+  existed when the room registered its network callback (Android announces each of them at once) are not a change.
+
+### Fixed: a new connection's transient FAILED
+- `freshPeerFailedGraceMs` (3 s): a peer connection that has never connected and reports FAILED gets the grace to
+  connect before the engine acts on it. Over ICE/TCP a new connection's first checks can fail at once (checking ->
+  failed -> connected within ~0.1-1.7 s on a device). In 0.1.0 such a FAILED of a full rejoin's new connection
+  made the rejoin end with `RoomEvent.Connected` instead of `RoomEvent.Reconnected` (Java: `onConnected()`
+  instead of `onReconnected(false)`, so an app's "reconnecting" banner stayed), and a publisher that failed once
+  on its first negotiation (subscriber-primary sessions) started a reconnect at once. A connection that was
+  connected and fails is acted on at once, as before. With the switch on, a rejoin's new primary connection that
+  stays down longer than the grace and then connects within the rejoin's wait also ends with `Reconnected`.
+
+### Added: `RoomEvent.ReconnectAttempt`
+- One per reconnect attempt, before its dial: `mode` (`RoomEvent.ReconnectMode.RESUME` / `FULL`), `cause`
+  (`peerConnectionFailed`, `peerConnectionClosed`, `peerConnectionDisconnected`, `signal`, `networkAvailable`,
+  `requested`; `reconnectRetry` for every later attempt), `attempt` (1 for the first of an outage) and
+  `afterNetworkChange`. Java: `GravixRoomServiceListener.onReconnectAttempt(isResume, cause, attempt,
+  afterNetworkChange)`. Emitted with every switch off too.
+
+### Added: the session's ICE transport
+- `Room.selectedTransport` (`GravixIceTransport.UDP` / `TCP` / `RELAY`: TCP when either peer connection runs over
+  ICE/TCP, RELAY when either is relayed), `Room.publisherTransport`, `Room.subscriberTransport`; null until the
+  first reading and after the session ended. From libwebrtc's selected-candidate-pair callback (no polling).
+- `RoomEvent.IceTransportChanged` (`transport`, `previous`, `publisher`, `subscriber`) when it changes.
+- `RoomEvent.SlowTcpTransport` (`rttMs`, `overMs`) once when a TCP session's round trip stays above `slowTcpRttMs`
+  (1 s) for `slowTcpForMs` (10 s), again after it recovered (a TCP episode ends when the session leaves TCP). The
+  round trip is read (one RTC-thread hop and one getStats per connected peer connection, each bounded by the
+  interval) every `iceTransportWatchMs` (5 s) only while either connection is on TCP AND the session is steady:
+  never during a resume or a full rejoin. A full rejoin starts the transport afresh (null until the new connections
+  select their pairs). `iceTransportWatchMs = null`: nothing is observed (the getters stay null).
+- Java: `GravixRoomService.getSelectedTransport()` / `getPublisherTransport()` / `getSubscriberTransport()`,
+  `onIceTransportChanged(transport, previous)`, `onSlowTcpTransport(rttMs, overMs)`.
+
+### Not ported (no such hazard in this engine)
+- Flutter `resumeReasonNetworkWindow` (a resume after a network change tells the server `RR_SIGNAL_DISCONNECTED`
+  instead of `RR_*_FAILED`): this SDK sends no reconnect reason at all (the server reads `RR_UNKNOWN` and never
+  takes a resume for "UDP blocked"); pinned by a test. `RoomEvent.ReconnectAttempt` has no `reconnectReason`.
+- Flutter `resumeBeforeFullOnNetworkFailure` (a connected connection's FAILED during a network change resumes
+  before a full rejoin): here a FAILED already starts with a resume (upstream); pinned by a test.
+
+### API
+- `GravixRecoveryOptions` gains six constructor parameters at the end. Source compatible, and Java code keeps
+  working unchanged (every `@JvmOverloads` constructor of 0.1.0 is still there). Not binary compatible for compiled
+  Kotlin callers: the Kotlin default-arguments constructor and `copy()` changed signature (a data class), so a
+  library compiled against 0.1.0 that builds a `GravixRecoveryOptions(...)` with named or default arguments, or
+  calls `.copy(...)` on one, must be recompiled. Java callers of the `@JvmOverloads` constructors link unchanged.
+  Apps recompile anyway.
+- Java code that turned everything off by passing all 17 constructor arguments (instead of
+  `GravixRecoveryOptions.UPSTREAM`) now gets the three new switches ON (`resumeAfterNetworkSocketError`,
+  `freshPeerFailedGraceMs`, `iceTransportWatchMs`, at their defaults). Use `UPSTREAM` (or pass the new arguments)
+  for "all off".
+
 ## 0.1.0 (2026-10-13)
 
 First release, `com.gravixcloud:gravix-rtc-android:0.1.0` on Maven Central. Only this artifact is published; the

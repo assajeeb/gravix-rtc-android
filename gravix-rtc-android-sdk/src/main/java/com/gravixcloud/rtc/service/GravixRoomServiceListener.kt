@@ -17,6 +17,7 @@
 package com.gravixcloud.rtc.service
 
 import com.gravixcloud.rtc.events.DisconnectReason
+import com.gravixcloud.rtc.room.GravixIceTransport
 import com.gravixcloud.rtc.room.Room
 import com.gravixcloud.rtc.room.track.VideoTrack
 
@@ -48,6 +49,26 @@ abstract class GravixRoomServiceListener {
 
     /** The recovery announced by [onReconnecting] succeeded ([isResume] as there). */
     open fun onReconnected(isResume: Boolean) {}
+
+    /**
+     * A reconnect attempt starts (one per attempt, before its dial; [RoomEvent.ReconnectAttempt][com.gravixcloud.rtc.events.RoomEvent.ReconnectAttempt]).
+     * [isResume]: the attempt resumes the session (else a full rejoin). [cause]: why (`peerConnectionFailed`, `signal`,
+     * `networkAvailable`, `reconnectRetry` for every attempt after the first, ...). [attempt]: 1 for the first of an
+     * outage. [afterNetworkChange]: the device's network changed shortly before or during the outage. For field logs.
+     */
+    open fun onReconnectAttempt(isResume: Boolean, cause: String, attempt: Int, afterNetworkChange: Boolean) {}
+
+    /**
+     * How the session's media travels changed ([GravixRoomService.selectedTransport]): [transport] is TCP when either
+     * media connection runs over ICE/TCP, RELAY when either is relayed, else UDP; [previous] null on the first reading.
+     */
+    open fun onIceTransportChanged(transport: GravixIceTransport?, previous: GravixIceTransport?) {}
+
+    /**
+     * The session runs over ICE/TCP with a round trip of [rttMs] for [overMs] (above 1 s for 10 s by default): media
+     * is likely frozen or very low quality. Once per episode.
+     */
+    open fun onSlowTcpTransport(rttMs: Long, overMs: Long) {}
 
     /** The session ended: the app disconnected, the server removed the participant, or recovery gave up. */
     open fun onDisconnected(reason: DisconnectReason, error: Throwable?) {}

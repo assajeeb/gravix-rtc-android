@@ -27,6 +27,7 @@ import com.gravixcloud.rtc.events.RoomEvent
 import com.gravixcloud.rtc.events.collect
 import com.gravixcloud.rtc.renderer.SurfaceViewRenderer
 import com.gravixcloud.rtc.renderer.TextureViewRenderer
+import com.gravixcloud.rtc.room.GravixIceTransport
 import com.gravixcloud.rtc.room.Room
 import com.gravixcloud.rtc.room.participant.RemoteParticipant
 import com.gravixcloud.rtc.room.track.LocalVideoTrack
@@ -179,6 +180,21 @@ class GravixRoomService internal constructor(
     val connectedRegion: String?
         get() = room.connectedRegion
 
+    /**
+     * How the session's media travels now (UDP / TCP / RELAY; [Room.selectedTransport]), or null before the first
+     * reading. Changes: [GravixRoomServiceListener.onIceTransportChanged].
+     */
+    val selectedTransport: GravixIceTransport?
+        get() = room.selectedTransport
+
+    /** The publisher connection's transport ([Room.publisherTransport]). */
+    val publisherTransport: GravixIceTransport?
+        get() = room.publisherTransport
+
+    /** The subscriber connection's transport ([Room.subscriberTransport]). */
+    val subscriberTransport: GravixIceTransport?
+        get() = room.subscriberTransport
+
     /** The local participant's uid (identity), once connected. */
     val localUid: String?
         get() = room.localParticipant.identity?.value
@@ -305,6 +321,23 @@ class GravixRoomService internal constructor(
             }
             is RoomEvent.Resuming -> dispatch { it.onReconnecting(true) }
             is RoomEvent.Resumed -> dispatch { it.onReconnected(true) }
+            is RoomEvent.ReconnectAttempt -> {
+                val resume = event.mode == RoomEvent.ReconnectMode.RESUME
+                val cause = event.cause
+                val attempt = event.attempt
+                val afterNetworkChange = event.afterNetworkChange
+                dispatch { it.onReconnectAttempt(resume, cause, attempt, afterNetworkChange) }
+            }
+            is RoomEvent.IceTransportChanged -> {
+                val transport = event.transport
+                val previous = event.previous
+                dispatch { it.onIceTransportChanged(transport, previous) }
+            }
+            is RoomEvent.SlowTcpTransport -> {
+                val rttMs = event.rttMs
+                val overMs = event.overMs
+                dispatch { it.onSlowTcpTransport(rttMs, overMs) }
+            }
             is RoomEvent.Reconnecting -> {
                 rejoining = true
                 dispatch { it.onReconnecting(false) }

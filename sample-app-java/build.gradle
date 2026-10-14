@@ -24,7 +24,9 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled false
+            // GRAVIX: -PgravixSampleMinify=true builds the release with R8 (the SDK's consumer rules), for a release gate
+            minifyEnabled project.hasProperty('gravixSampleMinify')
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
         }
     }
     compileOptions {

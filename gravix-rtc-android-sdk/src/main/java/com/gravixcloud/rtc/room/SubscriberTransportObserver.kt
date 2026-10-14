@@ -91,6 +91,7 @@ class SubscriberTransportObserver(
     }
 
     override fun onSelectedCandidatePairChanged(event: CandidatePairChangeEvent?) {
+        engine.gravixOnSelectedCandidatePair(isPublisher = false, local = event?.local) // GRAVIX (iceTransportWatchMs)
     }
 
     override fun onSignalingChange(p0: PeerConnection.SignalingState?) {

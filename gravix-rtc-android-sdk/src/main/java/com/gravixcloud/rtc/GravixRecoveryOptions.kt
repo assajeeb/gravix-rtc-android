@@ -17,16 +17,18 @@
 package com.gravixcloud.rtc
 
 /**
- * GRAVIX: how a room recovers from network and region failures (the Flutter SDK's `GravixRecoveryOptions`; this
- * release has its region-failover part). Every field is a separate switch whose OFF value is exactly the upstream
- * engine's behaviour; [UPSTREAM] turns all of them off at once. Set as `RoomOptions(gravixRecovery = ...)` or
- * `room.gravixRecovery = ...`.
+ * GRAVIX: how a room recovers from network and region failures (the Flutter SDK's `GravixRecoveryOptions`: its
+ * region-failover part, the reconnect fixes and the 0.4.18 network-change fixes that apply to this engine). Every
+ * field is a separate switch whose OFF value is exactly the upstream engine's behaviour ([networkChangeWindowMs],
+ * [slowTcpRttMs] and [slowTcpForMs] are parameters of other switches); [UPSTREAM] turns all of them off at once.
+ * Set as `RoomOptions(gravixRecovery = ...)` or `room.gravixRecovery = ...`.
  *
  * Which hosts each switch affects: [measuredRegionFailover], [lastGoodRegionList], [refusalEndsConnect] and the
  * region side of [failoverNeedsEvidence] act only where there is a region list, i.e. Gravix Cloud urls (`*.gravixcloud.com`,
  * `*.gravixcloud.run`, `/settings/regions`). [retrySameUrlFirst] (with its short dial,
- * [sameUrlRetryDialTimeoutMs]), [ignoreStaleSignalFailures] and [resumeOnPeerDisconnected] apply to EVERY host, self-hosted servers included
- * (as in the Flutter SDK).
+ * [sameUrlRetryDialTimeoutMs]) and all the other switches ([ignoreStaleSignalFailures], [resumeOnPeerDisconnected],
+ * the reconnect-wait and network switches, [resumeAfterNetworkSocketError], [freshPeerFailedGraceMs],
+ * [iceTransportWatchMs]) apply to EVERY host, self-hosted servers included (as in the Flutter SDK).
  *
  * @property measuredRegionFailover region failover (a failed first connect, or a failed full reconnect) dials the
  *   regions in MEASURED order when the start-up measurement (`GravixRegions.startMeasurement`) is fresh: fastest
@@ -103,6 +105,42 @@ package com.gravixcloud.rtc
  *   after it, so a failure of an earlier attempt could fail the next attempt's join, or close the session the
  *   client had just joined in another region (seen on the sim: a paused region's stale failure closed the
  *   failover's new session). Off: upstream.
+ * @property resumeAfterNetworkSocketError a resume whose dial failed with a socket error (no answer from the server:
+ *   the interface going away under it) while the device's network changed -- within [networkChangeWindowMs] before
+ *   the reconnect began, or since -- or while the device reads offline, makes the NEXT attempt a resume again instead of
+ *   a full rejoin (the server still holds the session for about 15-20 s). Two such failed resumes in a row still
+ *   become a full rejoin. The Flutter SDK 0.4.18's switch of the same name; device run (Wi-Fi off 5 s): the resume
+ *   dialled as the Wi-Fi went away failed, and the next attempt was a full rejoin started the instant the Wi-Fi came
+ *   back (the others saw the host leave and join). A socket error on a steady network, a refusal and a timeout are a
+ *   full rejoin as before. Applies to every host. Off: upstream (every attempt after the first is full, unless
+ *   [waitForNetwork] waited for the network).
+ * @property networkChangeWindowMs how long before a reconnect began a change of the device's network (a network
+ *   lost or available, as `ConnectivityManager` reports it) still counts as "the network changed" for
+ *   [resumeAfterNetworkSocketError] and [RoomEvent.ReconnectAttempt.afterNetworkChange][com.gravixcloud.rtc.events.RoomEvent.ReconnectAttempt.afterNetworkChange].
+ *   The Flutter SDK's resumeReasonNetworkWindow (30 s); its other use there, the reason a resume sends, does not apply:
+ *   this SDK sends no reconnect reason (the server reads RR_UNKNOWN and never takes a resume for "UDP blocked").
+ * @property freshPeerFailedGraceMs a peer connection that has NEVER connected and reports FAILED gets this long to
+ *   connect before the engine acts on the FAILED (the primary connection: the session's connection state; the
+ *   publisher in subscriber-primary mode: a reconnect). Over ICE/TCP a new connection's first checks can fail at once
+ *   (checking -> failed -> connected within ~0.1-1.7 s on a device). Without it a full rejoin's new connection that
+ *   did so made the rejoin end with [RoomEvent.Connected][com.gravixcloud.rtc.events.RoomEvent.Connected] instead of [RoomEvent.Reconnected][com.gravixcloud.rtc.events.RoomEvent.Reconnected] (the app's "reconnecting"
+ *   never ended with a reconnected), and a publisher that failed once on its first negotiation started a reconnect
+ *   at once. A connection that was connected and fails is acted on at once, as before; a join or rejoin still times
+ *   out as before. With it on, a rejoin's new primary connection that stayed down longer than the grace and then
+ *   connected within the rejoin's wait also ends the rejoin with [RoomEvent.Reconnected][com.gravixcloud.rtc.events.RoomEvent.Reconnected]. The Flutter SDK 0.4.18's
+ *   freshPeerFailedGrace (3 s). Null = off (upstream).
+ * @property iceTransportWatchMs observation of how the session's media travels: [com.gravixcloud.rtc.room.Room.selectedTransport]
+ *   (UDP / TCP / RELAY, from each peer connection's selected ICE candidate pair as libwebrtc reports it -- no polling)
+ *   and [RoomEvent.IceTransportChanged][com.gravixcloud.rtc.events.RoomEvent.IceTransportChanged]; while either connection runs over
+ *   ICE/TCP and the session is steady (connected, no resume or rejoin running), its round trip is read this often
+ *   (one getStats per connected peer connection; never while the session is being recovered) for
+ *   [RoomEvent.SlowTcpTransport][com.gravixcloud.rtc.events.RoomEvent.SlowTcpTransport]. The server prefers ICE/TCP for a participant after a failure it took
+ *   for "UDP blocked"; on a lossy link such a session can run at seconds of round trip. Null = off (nothing is
+ *   observed; the getters stay null).
+ * @property slowTcpRttMs with [iceTransportWatchMs]: a TCP session whose selected pair's round trip stays above this
+ *   for [slowTcpForMs] is reported once ([RoomEvent.SlowTcpTransport][com.gravixcloud.rtc.events.RoomEvent.SlowTcpTransport]),
+ *   again after it came back below (1 s).
+ * @property slowTcpForMs see [slowTcpRttMs] (10 s).
  */
 data class GravixRecoveryOptions @JvmOverloads constructor(
     val measuredRegionFailover: Boolean = true,
@@ -122,6 +160,12 @@ data class GravixRecoveryOptions @JvmOverloads constructor(
     val signalDialCapMs: Long? = DEFAULT_SIGNAL_DIAL_CAP_MS,
     val silentHostFailFast: Boolean = true,
     val resumeWaitsForLiveState: Boolean = true,
+    val resumeAfterNetworkSocketError: Boolean = true,
+    val networkChangeWindowMs: Long = DEFAULT_NETWORK_CHANGE_WINDOW_MS,
+    val freshPeerFailedGraceMs: Long? = DEFAULT_FRESH_PEER_FAILED_GRACE_MS,
+    val iceTransportWatchMs: Long? = DEFAULT_ICE_TRANSPORT_WATCH_MS,
+    val slowTcpRttMs: Long = DEFAULT_SLOW_TCP_RTT_MS,
+    val slowTcpForMs: Long = DEFAULT_SLOW_TCP_FOR_MS,
 ) {
     /** True when any region switch is on (the engine then consults the Gravix region strategy). */
     val regionStrategyEnabled: Boolean
@@ -132,6 +176,11 @@ data class GravixRecoveryOptions @JvmOverloads constructor(
         const val DEFAULT_RESUME_PRIMARY_DEADLINE_MS = 3000L
         const val DEFAULT_NETWORK_WAIT_PROBE_INTERVAL_MS = 2000L
         const val DEFAULT_SIGNAL_DIAL_CAP_MS = 30_000L
+        const val DEFAULT_NETWORK_CHANGE_WINDOW_MS = 30_000L
+        const val DEFAULT_FRESH_PEER_FAILED_GRACE_MS = 3000L
+        const val DEFAULT_ICE_TRANSPORT_WATCH_MS = 5000L
+        const val DEFAULT_SLOW_TCP_RTT_MS = 1000L
+        const val DEFAULT_SLOW_TCP_FOR_MS = 10_000L
 
         /** Everything off: the upstream engine's behaviour. */
         @JvmField
@@ -153,6 +202,9 @@ data class GravixRecoveryOptions @JvmOverloads constructor(
             signalDialCapMs = null,
             silentHostFailFast = false,
             resumeWaitsForLiveState = false,
+            resumeAfterNetworkSocketError = false,
+            freshPeerFailedGraceMs = null,
+            iceTransportWatchMs = null,
         )
     }
 }
