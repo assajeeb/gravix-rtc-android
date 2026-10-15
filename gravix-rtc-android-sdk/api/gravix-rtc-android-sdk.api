@@ -1699,6 +1699,327 @@ public final class com/gravixcloud/rtc/events/TrackPublicationEvent$Transcriptio
 	public final fun getTranscriptions ()Ljava/util/List;
 }
 
+public final class com/gravixcloud/rtc/join/GravixJoin {
+	public static final field Companion Lcom/gravixcloud/rtc/join/GravixJoin$Companion;
+	public static final field DEFAULT_ATTACH_TIMEOUT_MS J
+	public synthetic fun <init> (Lcom/gravixcloud/rtc/join/GravixJoin$Builder;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final synthetic fun abandon (Lcom/gravixcloud/rtc/join/GravixJoinRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun abandonAsync (Lcom/gravixcloud/rtc/join/GravixJoinRequest;)Ljava/util/concurrent/CompletableFuture;
+	public final fun adopt (Lcom/gravixcloud/rtc/join/GravixJoinRequest;Lcom/gravixcloud/rtc/room/Room;)Lcom/gravixcloud/rtc/join/GravixPrejoin;
+	public final fun adopt (Lcom/gravixcloud/rtc/join/GravixJoinRequest;Lcom/gravixcloud/rtc/room/Room;Lcom/gravixcloud/rtc/join/GravixJoinLeave;)Lcom/gravixcloud/rtc/join/GravixPrejoin;
+	public final synthetic fun attach (Lcom/gravixcloud/rtc/join/GravixJoinRequest;Lcom/gravixcloud/rtc/join/GravixJoinHooks;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final synthetic fun attach (Lcom/gravixcloud/rtc/join/GravixJoinRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun attachAsync (Lcom/gravixcloud/rtc/join/GravixJoinRequest;)Ljava/util/concurrent/CompletableFuture;
+	public final fun attachAsync (Lcom/gravixcloud/rtc/join/GravixJoinRequest;Lcom/gravixcloud/rtc/join/GravixJoinHooks;)Ljava/util/concurrent/CompletableFuture;
+	public final fun forgetAll ()V
+	public final fun getCurrent ()Lcom/gravixcloud/rtc/join/GravixPrejoin;
+	public final fun getTokens ()Lcom/gravixcloud/rtc/join/GravixJoinTokenProvider;
+	public final synthetic fun leave (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun leaveAsync ()Ljava/util/concurrent/CompletableFuture;
+	public final fun pending (Lcom/gravixcloud/rtc/join/GravixJoinRequest;)Lcom/gravixcloud/rtc/join/GravixPrejoin;
+	public final fun prepare (Lcom/gravixcloud/rtc/join/GravixJoinRequest;)Lcom/gravixcloud/rtc/join/GravixPrejoin;
+	public final fun prepare (Lcom/gravixcloud/rtc/join/GravixJoinRequest;Lcom/gravixcloud/rtc/join/GravixJoinHooks;)Lcom/gravixcloud/rtc/join/GravixPrejoin;
+	public final fun switchTo (Lcom/gravixcloud/rtc/join/GravixJoinRequest;)Lcom/gravixcloud/rtc/join/GravixPrejoin;
+	public final fun switchTo (Lcom/gravixcloud/rtc/join/GravixJoinRequest;Lcom/gravixcloud/rtc/join/GravixSwitchBeforeConnect;)Lcom/gravixcloud/rtc/join/GravixPrejoin;
+	public final fun switchTo (Lcom/gravixcloud/rtc/join/GravixJoinRequest;Lcom/gravixcloud/rtc/join/GravixSwitchBeforeConnect;Lcom/gravixcloud/rtc/join/GravixJoinHooks;)Lcom/gravixcloud/rtc/join/GravixPrejoin;
+	public final synthetic fun warm (Lcom/gravixcloud/rtc/join/GravixJoinRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun warmAsync (Lcom/gravixcloud/rtc/join/GravixJoinRequest;)Ljava/util/concurrent/CompletableFuture;
+}
+
+public final class com/gravixcloud/rtc/join/GravixJoin$Builder {
+	public fun <init> (Landroid/content/Context;Lcom/gravixcloud/rtc/join/GravixJoinTokenProvider;)V
+	public final fun build ()Lcom/gravixcloud/rtc/join/GravixJoin;
+	public final fun setAbandonInBackground (Z)Lcom/gravixcloud/rtc/join/GravixJoin$Builder;
+	public final fun setAttachTimeoutMs (J)Lcom/gravixcloud/rtc/join/GravixJoin$Builder;
+	public final fun setDefaults (Lcom/gravixcloud/rtc/join/GravixJoinHooks;)Lcom/gravixcloud/rtc/join/GravixJoin$Builder;
+	public final fun setListener (Lcom/gravixcloud/rtc/join/GravixJoinListener;)Lcom/gravixcloud/rtc/join/GravixJoin$Builder;
+	public final fun setLogSink (Lcom/gravixcloud/rtc/util/GravixLogSink;)Lcom/gravixcloud/rtc/join/GravixJoin$Builder;
+}
+
+public final class com/gravixcloud/rtc/join/GravixJoin$Companion {
+}
+
+public abstract interface class com/gravixcloud/rtc/join/GravixJoinConnect {
+	public static final field Companion Lcom/gravixcloud/rtc/join/GravixJoinConnect$Companion;
+	public abstract fun connect (Lcom/gravixcloud/rtc/room/Room;Lcom/gravixcloud/rtc/join/GravixJoinCredentials;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static fun fromFuture (Ljava/util/function/BiFunction;)Lcom/gravixcloud/rtc/join/GravixJoinConnect;
+}
+
+public final class com/gravixcloud/rtc/join/GravixJoinConnect$Companion {
+	public final fun fromFuture (Ljava/util/function/BiFunction;)Lcom/gravixcloud/rtc/join/GravixJoinConnect;
+	public final synthetic fun invoke (Lkotlin/jvm/functions/Function3;)Lcom/gravixcloud/rtc/join/GravixJoinConnect;
+}
+
+public final class com/gravixcloud/rtc/join/GravixJoinCredentials {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun getFromCache ()Z
+	public final fun getToken ()Ljava/lang/String;
+	public final fun getUrl ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/join/GravixJoinEvent {
+	public final fun getAtMs ()J
+	public final fun getDetail ()Ljava/lang/String;
+	public final fun getKind ()Lcom/gravixcloud/rtc/join/GravixJoinEventKind;
+	public final fun getRequest ()Lcom/gravixcloud/rtc/join/GravixJoinRequest;
+	public final fun getSinceTapMs ()J
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/join/GravixJoinEventKind : java/lang/Enum {
+	public static final field ABANDONED Lcom/gravixcloud/rtc/join/GravixJoinEventKind;
+	public static final field ADOPTED Lcom/gravixcloud/rtc/join/GravixJoinEventKind;
+	public static final field ATTACHED Lcom/gravixcloud/rtc/join/GravixJoinEventKind;
+	public static final field CONNECTED Lcom/gravixcloud/rtc/join/GravixJoinEventKind;
+	public static final field CONNECT_FAILED Lcom/gravixcloud/rtc/join/GravixJoinEventKind;
+	public static final field CONNECT_START Lcom/gravixcloud/rtc/join/GravixJoinEventKind;
+	public static final field LEFT Lcom/gravixcloud/rtc/join/GravixJoinEventKind;
+	public static final field PREJOIN_START Lcom/gravixcloud/rtc/join/GravixJoinEventKind;
+	public static final field SHOWN Lcom/gravixcloud/rtc/join/GravixJoinEventKind;
+	public static final field SWITCH_CONNECTED Lcom/gravixcloud/rtc/join/GravixJoinEventKind;
+	public static final field SWITCH_OLD_LEFT Lcom/gravixcloud/rtc/join/GravixJoinEventKind;
+	public static final field SWITCH_START Lcom/gravixcloud/rtc/join/GravixJoinEventKind;
+	public static final field TOKEN_READY Lcom/gravixcloud/rtc/join/GravixJoinEventKind;
+	public static final field URL_CHOSEN Lcom/gravixcloud/rtc/join/GravixJoinEventKind;
+	public static final field WARM Lcom/gravixcloud/rtc/join/GravixJoinEventKind;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/gravixcloud/rtc/join/GravixJoinEventKind;
+	public static fun values ()[Lcom/gravixcloud/rtc/join/GravixJoinEventKind;
+}
+
+public final class com/gravixcloud/rtc/join/GravixJoinHooks {
+	public synthetic fun <init> (Lcom/gravixcloud/rtc/join/GravixJoinHooks$Builder;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getConnect ()Lcom/gravixcloud/rtc/join/GravixJoinConnect;
+	public final fun getConnectOptions ()Lcom/gravixcloud/rtc/ConnectOptions;
+	public final fun getCreateRoom ()Lcom/gravixcloud/rtc/join/GravixJoinRoomFactory;
+	public final fun getLeave ()Lcom/gravixcloud/rtc/join/GravixJoinLeave;
+	public final fun getLeaveIfNeverShown ()Z
+}
+
+public final class com/gravixcloud/rtc/join/GravixJoinHooks$Builder {
+	public fun <init> ()V
+	public final fun build ()Lcom/gravixcloud/rtc/join/GravixJoinHooks;
+	public final fun setAbandonInBackground (Z)Lcom/gravixcloud/rtc/join/GravixJoinHooks$Builder;
+	public final fun setConnect (Lcom/gravixcloud/rtc/join/GravixJoinConnect;)Lcom/gravixcloud/rtc/join/GravixJoinHooks$Builder;
+	public final fun setConnectOptions (Lcom/gravixcloud/rtc/ConnectOptions;)Lcom/gravixcloud/rtc/join/GravixJoinHooks$Builder;
+	public final fun setCreateRoom (Lcom/gravixcloud/rtc/join/GravixJoinRoomFactory;)Lcom/gravixcloud/rtc/join/GravixJoinHooks$Builder;
+	public final fun setLeave (Lcom/gravixcloud/rtc/join/GravixJoinLeave;)Lcom/gravixcloud/rtc/join/GravixJoinHooks$Builder;
+	public final fun setLeaveIfNeverShown (Z)Lcom/gravixcloud/rtc/join/GravixJoinHooks$Builder;
+}
+
+public abstract interface class com/gravixcloud/rtc/join/GravixJoinLeave {
+	public static final field Companion Lcom/gravixcloud/rtc/join/GravixJoinLeave$Companion;
+	public static final field DEFAULT Lcom/gravixcloud/rtc/join/GravixJoinLeave;
+	public static fun fromFuture (Ljava/util/function/Function;)Lcom/gravixcloud/rtc/join/GravixJoinLeave;
+	public abstract fun leave (Lcom/gravixcloud/rtc/room/Room;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class com/gravixcloud/rtc/join/GravixJoinLeave$Companion {
+	public final fun fromFuture (Ljava/util/function/Function;)Lcom/gravixcloud/rtc/join/GravixJoinLeave;
+	public final synthetic fun invoke (Lkotlin/jvm/functions/Function2;)Lcom/gravixcloud/rtc/join/GravixJoinLeave;
+}
+
+public abstract interface class com/gravixcloud/rtc/join/GravixJoinListener {
+	public abstract fun onEvent (Lcom/gravixcloud/rtc/join/GravixJoinEvent;)V
+}
+
+public final class com/gravixcloud/rtc/join/GravixJoinLog {
+	public static final field INSTANCE Lcom/gravixcloud/rtc/join/GravixJoinLog;
+	public static final field PREFIX Ljava/lang/String;
+	public static final fun getLevel ()Lcom/gravixcloud/rtc/util/LoggingLevel;
+	public static final fun getSink ()Lcom/gravixcloud/rtc/util/GravixLogSink;
+	public static final fun host (Ljava/lang/String;)Ljava/lang/String;
+	public static final fun setLevel (Lcom/gravixcloud/rtc/util/LoggingLevel;)V
+	public static final fun setSink (Lcom/gravixcloud/rtc/util/GravixLogSink;)V
+	public static final fun shortId (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/join/GravixJoinRequest {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Z)V
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCanPublish ()Z
+	public final fun getIdentity ()Ljava/lang/String;
+	public final fun getRoom ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class com/gravixcloud/rtc/join/GravixJoinRoomFactory {
+	public abstract fun create ()Lcom/gravixcloud/rtc/room/Room;
+}
+
+public final class com/gravixcloud/rtc/join/GravixJoinTokenException : java/lang/Exception {
+	public final fun getReason ()Lcom/gravixcloud/rtc/join/GravixJoinTokenException$Reason;
+}
+
+public final class com/gravixcloud/rtc/join/GravixJoinTokenException$Reason : java/lang/Enum {
+	public static final field FETCHER Lcom/gravixcloud/rtc/join/GravixJoinTokenException$Reason;
+	public static final field MALFORMED Lcom/gravixcloud/rtc/join/GravixJoinTokenException$Reason;
+	public static final field TIMEOUT Lcom/gravixcloud/rtc/join/GravixJoinTokenException$Reason;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/gravixcloud/rtc/join/GravixJoinTokenException$Reason;
+	public static fun values ()[Lcom/gravixcloud/rtc/join/GravixJoinTokenException$Reason;
+}
+
+public abstract interface class com/gravixcloud/rtc/join/GravixJoinTokenFetcher {
+	public static final field Companion Lcom/gravixcloud/rtc/join/GravixJoinTokenFetcher$Companion;
+	public abstract fun fetch (Lcom/gravixcloud/rtc/join/GravixJoinRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static fun fromFuture (Ljava/util/function/Function;)Lcom/gravixcloud/rtc/join/GravixJoinTokenFetcher;
+	public static fun fromTokenSource (Lcom/gravixcloud/rtc/token/ConfigurableTokenSource;)Lcom/gravixcloud/rtc/join/GravixJoinTokenFetcher;
+}
+
+public final class com/gravixcloud/rtc/join/GravixJoinTokenFetcher$Companion {
+	public final fun fromFuture (Ljava/util/function/Function;)Lcom/gravixcloud/rtc/join/GravixJoinTokenFetcher;
+	public final fun fromTokenSource (Lcom/gravixcloud/rtc/token/ConfigurableTokenSource;)Lcom/gravixcloud/rtc/join/GravixJoinTokenFetcher;
+	public final synthetic fun invoke (Lkotlin/jvm/functions/Function2;)Lcom/gravixcloud/rtc/join/GravixJoinTokenFetcher;
+}
+
+public final class com/gravixcloud/rtc/join/GravixJoinTokenProvider {
+	public fun <init> (Lcom/gravixcloud/rtc/join/GravixJoinTokenFetcher;)V
+	public fun <init> (Lcom/gravixcloud/rtc/join/GravixJoinTokenFetcher;Lcom/gravixcloud/rtc/join/GravixTokenReuse;)V
+	public final fun cached (Lcom/gravixcloud/rtc/join/GravixJoinRequest;)Lcom/gravixcloud/rtc/join/GravixJoinCredentials;
+	public final synthetic fun getCredentials (Lcom/gravixcloud/rtc/join/GravixJoinRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getCredentialsAsync (Lcom/gravixcloud/rtc/join/GravixJoinRequest;)Ljava/util/concurrent/CompletableFuture;
+	public final fun getReuse ()Lcom/gravixcloud/rtc/join/GravixTokenReuse;
+	public final fun invalidate (Lcom/gravixcloud/rtc/join/GravixJoinRequest;)V
+	public final fun invalidateAll ()V
+}
+
+public abstract interface class com/gravixcloud/rtc/join/GravixLiveCheck {
+	public abstract fun isLiveOn ()Z
+}
+
+public final class com/gravixcloud/rtc/join/GravixPrejoin {
+	public final synthetic fun abandon (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun abandonAsync ()Ljava/util/concurrent/CompletableFuture;
+	public final synthetic fun attach (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final synthetic fun attach (ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun attachAsync ()Ljava/util/concurrent/CompletableFuture;
+	public final fun attachAsync (Z)Ljava/util/concurrent/CompletableFuture;
+	public final synthetic fun awaitConnected (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final synthetic fun awaitEnded (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun connectedFuture ()Ljava/util/concurrent/CompletableFuture;
+	public final fun endedFuture ()Ljava/util/concurrent/CompletableFuture;
+	public final fun getAbandonInBackground ()Z
+	public final fun getCredentials ()Lcom/gravixcloud/rtc/join/GravixJoinCredentials;
+	public final fun getEndReason ()Lcom/gravixcloud/rtc/join/GravixPrejoinEndReason;
+	public final fun getError ()Ljava/lang/Throwable;
+	public final fun getRequest ()Lcom/gravixcloud/rtc/join/GravixJoinRequest;
+	public final fun getRoom ()Lcom/gravixcloud/rtc/room/Room;
+	public final fun getStartedAtMs ()J
+	public final fun getState ()Lcom/gravixcloud/rtc/join/GravixPrejoinState;
+	public final synthetic fun leave (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun leaveAsync ()Ljava/util/concurrent/CompletableFuture;
+	public final fun markShown ()V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/join/GravixPrejoinEndReason : java/lang/Enum {
+	public static final field ABANDONED Lcom/gravixcloud/rtc/join/GravixPrejoinEndReason;
+	public static final field ATTACH_TIMEOUT Lcom/gravixcloud/rtc/join/GravixPrejoinEndReason;
+	public static final field BACKGROUND Lcom/gravixcloud/rtc/join/GravixPrejoinEndReason;
+	public static final field CANCELLED Lcom/gravixcloud/rtc/join/GravixPrejoinEndReason;
+	public static final field FAILED Lcom/gravixcloud/rtc/join/GravixPrejoinEndReason;
+	public static final field LEFT Lcom/gravixcloud/rtc/join/GravixPrejoinEndReason;
+	public static final field NEVER_SHOWN Lcom/gravixcloud/rtc/join/GravixPrejoinEndReason;
+	public static final field REPLACED Lcom/gravixcloud/rtc/join/GravixPrejoinEndReason;
+	public static final field ROOM_GONE Lcom/gravixcloud/rtc/join/GravixPrejoinEndReason;
+	public static final field SUPERSEDED Lcom/gravixcloud/rtc/join/GravixPrejoinEndReason;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/gravixcloud/rtc/join/GravixPrejoinEndReason;
+	public static fun values ()[Lcom/gravixcloud/rtc/join/GravixPrejoinEndReason;
+}
+
+public final class com/gravixcloud/rtc/join/GravixPrejoinState : java/lang/Enum {
+	public static final field ATTACHED Lcom/gravixcloud/rtc/join/GravixPrejoinState;
+	public static final field CONNECTED Lcom/gravixcloud/rtc/join/GravixPrejoinState;
+	public static final field CONNECTING Lcom/gravixcloud/rtc/join/GravixPrejoinState;
+	public static final field ENDED Lcom/gravixcloud/rtc/join/GravixPrejoinState;
+	public static final field STARTING Lcom/gravixcloud/rtc/join/GravixPrejoinState;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/gravixcloud/rtc/join/GravixPrejoinState;
+	public static fun values ()[Lcom/gravixcloud/rtc/join/GravixPrejoinState;
+}
+
+public abstract interface class com/gravixcloud/rtc/join/GravixRejoinAction {
+	public static final field Companion Lcom/gravixcloud/rtc/join/GravixRejoinAction$Companion;
+	public static fun fromFuture (Ljava/util/function/Supplier;)Lcom/gravixcloud/rtc/join/GravixRejoinAction;
+	public abstract fun rejoin (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class com/gravixcloud/rtc/join/GravixRejoinAction$Companion {
+	public final fun fromFuture (Ljava/util/function/Supplier;)Lcom/gravixcloud/rtc/join/GravixRejoinAction;
+	public final synthetic fun invoke (Lkotlin/jvm/functions/Function1;)Lcom/gravixcloud/rtc/join/GravixRejoinAction;
+}
+
+public final class com/gravixcloud/rtc/join/GravixRejoinPolicy {
+	public static final field Companion Lcom/gravixcloud/rtc/join/GravixRejoinPolicy$Companion;
+	public synthetic fun <init> (Lcom/gravixcloud/rtc/join/GravixRejoinPolicy$Builder;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getAttempts ()I
+	public final fun getPending ()Z
+	public final fun getRefused ()Z
+	public final fun getTotal ()I
+	public final fun joined ()V
+	public final fun liveBack ()V
+	public final fun liveEnded ()V
+	public static final fun rejoinable (Lcom/gravixcloud/rtc/events/DisconnectReason;)Z
+	public final fun release ()V
+	public final fun sessionEnded (Lcom/gravixcloud/rtc/events/DisconnectReason;)Z
+}
+
+public final class com/gravixcloud/rtc/join/GravixRejoinPolicy$Builder {
+	public fun <init> (Lcom/gravixcloud/rtc/join/GravixRejoinAction;Lcom/gravixcloud/rtc/join/GravixLiveCheck;)V
+	public final fun build ()Lcom/gravixcloud/rtc/join/GravixRejoinPolicy;
+	public final fun setBackoffMs ([J)Lcom/gravixcloud/rtc/join/GravixRejoinPolicy$Builder;
+	public final fun setLogSink (Lcom/gravixcloud/rtc/util/GravixLogSink;)Lcom/gravixcloud/rtc/join/GravixRejoinPolicy$Builder;
+	public final fun setMaxPerIncident (I)Lcom/gravixcloud/rtc/join/GravixRejoinPolicy$Builder;
+	public final fun setMaxTotal (I)Lcom/gravixcloud/rtc/join/GravixRejoinPolicy$Builder;
+	public final fun setMayRejoin (Lcom/gravixcloud/rtc/join/GravixRejoinAction;)Lcom/gravixcloud/rtc/join/GravixRejoinPolicy$Builder;
+	public final fun setMayRejoinTimeoutMs (J)Lcom/gravixcloud/rtc/join/GravixRejoinPolicy$Builder;
+	public final fun setOnGaveUp (Ljava/lang/Runnable;)Lcom/gravixcloud/rtc/join/GravixRejoinPolicy$Builder;
+	public final fun setStableAfterMs (J)Lcom/gravixcloud/rtc/join/GravixRejoinPolicy$Builder;
+}
+
+public final class com/gravixcloud/rtc/join/GravixRejoinPolicy$Companion {
+	public final fun rejoinable (Lcom/gravixcloud/rtc/events/DisconnectReason;)Z
+}
+
+public abstract interface class com/gravixcloud/rtc/join/GravixSwitchBeforeConnect {
+	public static final field Companion Lcom/gravixcloud/rtc/join/GravixSwitchBeforeConnect$Companion;
+	public abstract fun beforeConnect (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static fun fromFuture (Ljava/util/function/Supplier;)Lcom/gravixcloud/rtc/join/GravixSwitchBeforeConnect;
+}
+
+public final class com/gravixcloud/rtc/join/GravixSwitchBeforeConnect$Companion {
+	public final fun fromFuture (Ljava/util/function/Supplier;)Lcom/gravixcloud/rtc/join/GravixSwitchBeforeConnect;
+	public final synthetic fun invoke (Lkotlin/jvm/functions/Function1;)Lcom/gravixcloud/rtc/join/GravixSwitchBeforeConnect;
+}
+
+public final class com/gravixcloud/rtc/join/GravixTokenReuse {
+	public static final field Companion Lcom/gravixcloud/rtc/join/GravixTokenReuse$Companion;
+	public static final field DEFAULT Lcom/gravixcloud/rtc/join/GravixTokenReuse;
+	public static final field FAST_JOIN Lcom/gravixcloud/rtc/join/GravixTokenReuse;
+	public synthetic fun <init> (Lcom/gravixcloud/rtc/join/GravixTokenReuse$Builder;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun allows (JJJ)Z
+	public final fun getMaxAgeMs ()J
+	public final fun getMaxLifetimeFraction ()D
+	public final fun getMinRemainingMs ()J
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/join/GravixTokenReuse$Builder {
+	public fun <init> ()V
+	public final fun build ()Lcom/gravixcloud/rtc/join/GravixTokenReuse;
+	public final fun setMaxAgeMs (J)Lcom/gravixcloud/rtc/join/GravixTokenReuse$Builder;
+	public final fun setMaxLifetimeFraction (D)Lcom/gravixcloud/rtc/join/GravixTokenReuse$Builder;
+	public final fun setMinRemainingMs (J)Lcom/gravixcloud/rtc/join/GravixTokenReuse$Builder;
+}
+
+public final class com/gravixcloud/rtc/join/GravixTokenReuse$Companion {
+}
+
 public final class com/gravixcloud/rtc/memory/CloseableManager : java/io/Closeable {
 	public fun <init> ()V
 	public fun close ()V
@@ -5303,6 +5624,19 @@ public final class com/gravixcloud/rtc/util/FlowDelegateKt {
 }
 
 public abstract interface annotation class com/gravixcloud/rtc/util/FlowObservable : java/lang/annotation/Annotation {
+}
+
+public abstract interface class com/gravixcloud/rtc/util/GravixLogSink {
+	public abstract fun onLine (Lcom/gravixcloud/rtc/util/LoggingLevel;Ljava/lang/String;)V
+}
+
+public final class com/gravixcloud/rtc/util/GravixPubLog {
+	public static final field INSTANCE Lcom/gravixcloud/rtc/util/GravixPubLog;
+	public static final field PREFIX Ljava/lang/String;
+	public static final fun getLevel ()Lcom/gravixcloud/rtc/util/LoggingLevel;
+	public static final fun getSink ()Lcom/gravixcloud/rtc/util/GravixLogSink;
+	public static final fun setLevel (Lcom/gravixcloud/rtc/util/LoggingLevel;)V
+	public static final fun setSink (Lcom/gravixcloud/rtc/util/GravixLogSink;)V
 }
 
 public class com/gravixcloud/rtc/util/GxDebugTree {

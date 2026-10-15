@@ -45,6 +45,8 @@ import com.gravixcloud.rtc.events.DisconnectReason
 import com.gravixcloud.rtc.events.ParticipantEvent
 import com.gravixcloud.rtc.events.RoomEvent
 import com.gravixcloud.rtc.events.collect
+import com.gravixcloud.rtc.join.GravixJoinLog
+import com.gravixcloud.rtc.join.gravixSessionKeyOf
 import com.gravixcloud.rtc.memory.CloseableManager
 import com.gravixcloud.rtc.regions.GravixRegionFailoverOrder
 import com.gravixcloud.rtc.regions.GravixRegionUrl
@@ -77,6 +79,7 @@ import com.gravixcloud.rtc.room.track.TrackPublication
 import com.gravixcloud.rtc.room.types.toSDKType
 import com.gravixcloud.rtc.room.util.ConnectionWarmer
 import com.gravixcloud.rtc.util.FlowObservable
+import com.gravixcloud.rtc.util.GravixStepLogs
 import com.gravixcloud.rtc.util.GxLog
 import com.gravixcloud.rtc.util.flow
 import com.gravixcloud.rtc.util.flowDelegate
@@ -461,7 +464,7 @@ constructor(
     }
 
     private fun gravixEmit(event: RoomEvent.ConnectedUrlChanged) {
-        GxLog.i { "connected url: ${event.url} (region ${event.region ?: "unknown"}; was ${event.previousUrl ?: "none"})" }
+        GxLog.i { "connected url: ${GravixStepLogs.host(event.url)} (region ${event.region ?: "unknown"}; was ${GravixStepLogs.host(event.previousUrl)})" }
         for (l in connectedUrlListeners) {
             try {
                 l.onConnectedUrlChanged(event)
@@ -547,7 +550,7 @@ constructor(
             GxLog.i { "Room is not in disconnected state, ignoring prepareConnection call." }
             return
         }
-        GxLog.d { "preparing connection to $url" }
+        GxLog.d { "preparing connection to ${GravixStepLogs.host(url)}" }
 
         try {
             val urlActual = URI(url)
@@ -561,7 +564,7 @@ constructor(
                 if (regionUrl != null && state == State.DISCONNECTED) {
                     this.regionUrl = regionUrl
                     connectionWarmer.fetch(regionUrl)
-                    GxLog.d { "prepared connection to $regionUrl" }
+                    GxLog.d { "prepared connection to ${GravixStepLogs.host(regionUrl)}" }
                 }
             } else {
                 connectionWarmer.fetch(url)
@@ -591,6 +594,10 @@ constructor(
         if (state != State.DISCONNECTED) {
             throw IllegalStateException("Room.connect attempted while room is not disconnected!")
         }
+        // GRAVIX (0.1.2): [GravixJoin] step lines for every connect (keyed from the token's grant; no secret)
+        val gxKey = gravixSessionKeyOf(token)
+        val gxStartNs = System.nanoTime()
+        GravixJoinLog.step("roomConnect", gxKey, detail = "host=${GravixJoinLog.host(url)}")
         val roomOptions: RoomOptions
         stateLock.withLock {
             if (state != State.DISCONNECTED) {
@@ -680,7 +687,7 @@ constructor(
                     val refused = status == 401 || status == 403
                     // GRAVIX (refusalEndsConnect): the token was refused; another region would refuse it too
                     if (refused && regionUrlProvider != null && engine.gravixRecovery.refusalEndsConnect) {
-                        GxLog.i { "connect to $connectUrl refused ($status): the token, not the region; no failover" }
+                        GxLog.i { "connect to ${GravixStepLogs.host(connectUrl)} refused ($status): the token, not the region; no failover" }
                         throw e
                     }
                     nextUrl = if (regionStrategy != null && regionUrlProvider != null) {
@@ -689,7 +696,12 @@ constructor(
                         regionUrlProvider?.getNextBestRegionUrl()
                     }
                     if (nextUrl != null) {
-                        GxLog.d(e) { "Connection to $connectUrl failed, retrying with another region: $nextUrl" }
+                        GravixJoinLog.step(
+                            "regionFailover",
+                            gxKey,
+                            detail = "from=${GravixJoinLog.host(connectUrl)} to=${GravixJoinLog.host(nextUrl)} after=${GravixJoinLog.errorOf(e)}",
+                        )
+                        GxLog.d(e) { "Connection to ${GravixStepLogs.host(connectUrl)} failed, retrying with another region: ${GravixStepLogs.host(nextUrl)}" }
                     } else {
                         throw e // rethrow since no more regions to try.
                     }
@@ -741,9 +753,20 @@ constructor(
         }
         connectJob.join()
 
+        val gxInMs = (System.nanoTime() - gxStartNs) / 1_000_000
+        if (error == null) {
+            GravixJoinLog.step(
+                "roomConnectOk",
+                gxKey,
+                detail = "in=${gxInMs}ms host=${GravixJoinLog.host(connectedUrl)} region=${connectedRegion ?: "-"}",
+            )
+        }
         error?.let {
             if (it !is CancellationException) {
+                GravixJoinLog.step("roomConnectFail", gxKey, detail = "reason=${GravixJoinLog.errorOf(it)} in=${gxInMs}ms")
                 handleDisconnect(DisconnectReason.JOIN_FAILURE)
+            } else {
+                GravixJoinLog.step("roomConnectCancelled", gxKey, detail = "in=${gxInMs}ms")
             }
             throw it
         }

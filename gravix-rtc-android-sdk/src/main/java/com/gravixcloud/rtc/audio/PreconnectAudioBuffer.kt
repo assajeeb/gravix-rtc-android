@@ -166,7 +166,7 @@ internal constructor(timeout: Duration) : AudioTrackSink {
 
         val samples = audioData.size / (numberOfChannels * bitsPerSample / 8)
         val duration = samples.toFloat() / sampleRate
-        GxLog.i { "Sent ${duration}s (${audioData.size / 1024}KB) of audio data to ${agentIdentities.size} agent(s) (${agentIdentities.joinToString(",")})" }
+        GxLog.i { "Sent ${duration}s (${audioData.size / 1024}KB) of audio data to ${agentIdentities.size} agent(s)" }
     }
 }
 

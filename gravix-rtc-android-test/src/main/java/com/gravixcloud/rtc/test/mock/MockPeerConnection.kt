@@ -54,13 +54,45 @@ class MockPeerConnection(
 
     private val transceivers = mutableListOf<RtpTransceiver>()
 
+    /**
+     * GRAVIX (offer serialisation tests): while true, [setLocalDescription] parks the call (no state change, no
+     * callback) until [releaseHeldSetLocal], like a slow libwebrtc setLocalDescription on a phone.
+     */
+    @Volatile
+    var holdSetLocal = false
+    private val heldSetLocal = mutableListOf<Pair<SdpObserver, SessionDescription>>()
+
+    /** GRAVIX: createOffer calls, and those made while an offer of ours was pending (HAVE_LOCAL_OFFER). */
+    @Volatile
+    var createOfferCalls = 0
+        private set
+
+    @Volatile
+    var createOfferWhileLocalOfferPending = 0
+        private set
+
+    /** GRAVIX: completes every parked [setLocalDescription] (see [holdSetLocal]); returns how many. */
+    fun releaseHeldSetLocal(): Int {
+        val held = heldSetLocal.toList()
+        heldSetLocal.clear()
+        held.forEach { (o, sdp) -> applyLocalDescription(o, sdp) }
+        return held.size
+    }
+
     override fun getLocalDescription(): SessionDescription? = localDesc
     override fun setLocalDescription(observer: SdpObserver, sdp: SessionDescription) {
         if (sdp.description.isEmpty()) {
             observer.onSetFailure("empty local description")
             return
         }
+        if (holdSetLocal) {
+            heldSetLocal.add(observer to sdp)
+            return
+        }
+        applyLocalDescription(observer, sdp)
+    }
 
+    private fun applyLocalDescription(observer: SdpObserver, sdp: SessionDescription) {
         try {
             signalStateMachine.handleSetMethod(Location.LOCAL, sdp.type)
         } catch (e: IllegalStateException) {
@@ -109,8 +141,14 @@ class MockPeerConnection(
         return dataChannel
     }
 
+    /** GRAVIX: the SDP [createOffer] makes (default the placeholder "local_offer"). */
+    @Volatile
+    var offerSdp = "local_offer"
+
     override fun createOffer(observer: SdpObserver?, constraints: MediaConstraints?) {
-        val sdp = SessionDescription(SessionDescription.Type.OFFER, "local_offer")
+        createOfferCalls++
+        if (signalingState() == SignalingState.HAVE_LOCAL_OFFER) createOfferWhileLocalOfferPending++
+        val sdp = SessionDescription(SessionDescription.Type.OFFER, offerSdp)
         observer?.onCreateSuccess(sdp)
     }
 

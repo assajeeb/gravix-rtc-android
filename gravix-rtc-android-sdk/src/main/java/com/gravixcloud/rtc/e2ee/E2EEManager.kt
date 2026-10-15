@@ -17,9 +17,6 @@
 
 package com.gravixcloud.rtc.e2ee
 
-import dagger.assisted.Assisted
-import dagger.assisted.AssistedFactory
-import dagger.assisted.AssistedInject
 import com.gravixcloud.rtc.annotations.Beta
 import com.gravixcloud.rtc.events.RoomEvent
 import com.gravixcloud.rtc.room.Room
@@ -33,6 +30,9 @@ import com.gravixcloud.rtc.room.track.RemoteVideoTrack
 import com.gravixcloud.rtc.room.track.Track
 import com.gravixcloud.rtc.room.track.TrackPublication
 import com.gravixcloud.rtc.util.GxLog
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedFactory
+import dagger.assisted.AssistedInject
 import org.webrtc.FrameCryptor
 import org.webrtc.FrameCryptor.FrameCryptionState
 import org.webrtc.FrameCryptorAlgorithm
@@ -229,7 +229,8 @@ constructor(
      */
     fun ratchetKey() {
         val newKey = keyProvider.ratchetSharedKey()
-        GxLog.d { "ratchetSharedKey: newKey: $newKey" }
+        // GRAVIX (0.1.2): never the key itself
+        GxLog.d { "ratchetSharedKey: new key of ${newKey.size} bytes" }
     }
 
     internal fun cleanup() {

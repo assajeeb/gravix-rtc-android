@@ -19,6 +19,7 @@ package com.gravixcloud.rtc.room
 import android.os.SystemClock
 import com.gravixcloud.rtc.GravixRecoveryOptions
 import com.gravixcloud.rtc.regions.GravixRegionFailoverOrder
+import com.gravixcloud.rtc.util.GravixStepLogs
 import com.gravixcloud.rtc.util.GxLog
 import com.gravixcloud.rtc.util.rethrowIfCancellationSignal
 import kotlinx.coroutines.async
@@ -110,7 +111,7 @@ internal class GravixRegionFailover(
         if (options.retrySameUrlFirst && atSessionUrl && !sameUrlRetried && !attempt.lastRefused) {
             sameUrlRetried = true
             nextDialTimeoutMs = options.sameUrlRetryDialTimeoutMs
-            GxLog.i { "reconnect at ${attempt.sessionUrl} failed; retrying it once (full) before another region" }
+            GxLog.i { "reconnect at ${GravixStepLogs.host(attempt.sessionUrl)} failed; retrying it once (full) before another region" }
             return attempt.sessionUrl
         }
         val next = nextRegion(attempt.lastUrl, currentUrlFailed = !attempt.lastRefused)
@@ -129,7 +130,7 @@ internal class GravixRegionFailover(
             provider?.clearAttemptedRegions()
             return attempt.sessionUrl
         }
-        GxLog.i { "region failover: ${attempt.lastUrl} -> $next" }
+        GxLog.i { "region failover: ${GravixStepLogs.host(attempt.lastUrl)} -> ${GravixStepLogs.host(next)}" }
         return next
     }
 

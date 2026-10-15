@@ -2,6 +2,57 @@
 
 Upstream (LiveKit Android SDK) history up to the fork point: `doc/upstream/CHANGELOG.md`.
 
+## 0.1.2 (2026-10-15)
+
+Fast join in the SDK, a publisher negotiation fix, and secret-free step logs, ported from the Flutter SDK 0.4.19
+where they fit this engine (tests first on the mock engine). Purely additive API; `Room.connect` and
+`GravixRoomService` are unchanged for an app that does not use the new classes.
+
+### Fixed: a negotiation request during an offer's setLocalDescription left the publisher stuck
+- The publisher's negotiation is debounced (20 ms) and each new request cancelled the previous one's job. A request
+  that came while the previous offer was being set locally (tens of ms on a phone) cancelled it after
+  setLocalDescription and before the offer was sent: the publisher stayed in have-local-offer with no offer at the
+  server, and every later negotiation waited behind an answer that never came (a track published then was never
+  negotiated until a reconnect). A started offer is now always finished and sent; the newer request waits for its
+  answer as before (`GravixOfferSerialiseMockE2ETest`).
+- Checked and not present here: the Flutter SDK's two offers in flight (a debounced negotiation and the answer's
+  replay each building an offer, refused as "order of m-lines"): this engine creates offers under a lock and defers
+  while an offer is pending (the test passes on 0.1.1 code).
+
+### Added: `GravixJoin` (`com.gravixcloud.rtc.join`, `doc/FAST_JOIN.md`)
+- `GravixJoin` (Builder): `warm` / `warmAsync` (token only: the engine has no standby pre-connect), `prepare`,
+  `attach` / `attachAsync`, `abandon`, `switchTo` (with `GravixSwitchBeforeConnect`), `adopt`, `leave`, `forgetAll`,
+  `current`, `pending`; `GravixPrejoin` handles (`attach`, `markShown`, `abandon`, `leave`, `awaitConnected` /
+  `connectedFuture`, `awaitEnded` / `endedFuture`, `state`, `endReason`, `error`); `GravixJoinEvent`s per step.
+- One session at a time (the old leave before the new connect); the tap's connect handed to the room screen; a join
+  abandoned when the app goes to the background before attach (`ProcessLifecycleOwner`; a cold start's first
+  `onCreate` is not "background"), or before the attached screen was shown; attach timeout 20 s; a dead Room ends the join (`ROOM_GONE`) and is never left again; abandon
+  cancels a running connect, then leaves. A join dials the measured nearest region when the token's url is one of
+  the measured regions (`GravixRegionMeasurements.resolveConnectUrl`).
+- `GravixJoinTokenProvider` (per-request cache of 16, in-flight sharing, failures not cached, 15 s timeout) with
+  `GravixTokenReuse.FAST_JOIN` (younger than half its lifetime and 5 min, >= 90 s left); `GravixJoinTokenFetcher`
+  (`fromFuture`, `fromTokenSource`).
+- `GravixRejoinPolicy`: a viewer's rejoin when the live is back / after a session that ended by itself (1/2/4/8 s,
+  reason filter, 3 per incident, 12 per live, entry check).
+- Java: every suspend call has a `CompletableFuture` twin; hooks have `fromFuture` adapters; builders and plain
+  classes only (no data classes with default arguments). `sample-app-java` has `FastJoinExample.java`.
+- New `implementation` dependency: `androidx.lifecycle:lifecycle-process` (no lifecycle type in the public API).
+
+### Added: `[GravixJoin]` and `[GravixPub]` step logs
+- One secret-free line per join step (`GravixJoin`, and `Room.connect`: `roomConnect`, `regionFailover`,
+  `roomConnectOk`, `roomConnectFail`) and per publisher negotiation step (offer created / deferred / sent /
+  replayed, local and remote descriptions set or refused with libwebrtc's reason, the m-line list).
+- **On by default at INFO, also with `GravixRtc.loggingLevel` OFF** (a few lines per connect and publish), to
+  `GravixRtc.logger` (logcat by default). `GravixJoinLog.level` / `GravixPubLog.level` = `LoggingLevel.OFF`
+  silences them; `.sink` (`GravixLogSink`) sends them to your own logger.
+
+### Changed: no secret in any log line
+- With SDK logging on (VERBOSE), 0.1.1 logged whole signalling requests and responses (SDP offers and answers with
+  ice-pwd / ice-ufrag / fingerprints, the TURN credential of the JoinResponse), ICE candidates with their ufrag, the
+  connect url with its query, the E2EE ratchet key and full SDP bodies. Now: the message type only, candidates as
+  mid / type / protocol, hosts only, libwebrtc errors cut before any SDP. `GxRedact` also redacts SDP secret
+  attributes and a candidate's ufrag (`GravixLogSecretsMockE2ETest`).
+
 ## 0.1.1 (2026-10-15)
 
 Recovery after a phone's network change, ported from the Flutter SDK 0.4.18 where the hazard exists in this

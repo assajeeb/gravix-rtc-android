@@ -74,7 +74,8 @@ class GravixTokenLoggingMockE2ETest : MockE2ETest() {
         testScheduler.advanceUntilIdle()
 
         val log = logged()
-        assertTrue("the response is still logged", log.contains("refresh_token"))
+        // GRAVIX (0.1.2): a response is logged by its type only (never its body)
+        assertTrue("the response is still logged:\n$log", log.contains("response: REFRESH_TOKEN"))
         assertFalse("refresh token logged:\n$log", log.contains(FAKE_REFRESHED_JWT))
         assertFalse("token signature logged", log.contains(FAKE_SIGNATURE))
     }
@@ -91,7 +92,8 @@ class GravixTokenLoggingMockE2ETest : MockE2ETest() {
 
         val log = logged()
         assertTrue("the connect line is still logged:\n$log", log.contains("connecting to ws://www.example.com"))
-        assertTrue("the query key stays, its value is redacted", log.contains("access_token=<redacted>"))
+        // GRAVIX (0.1.2): no url query in a log line at all (it was the key with a redacted value)
+        assertFalse("a url query logged:\n$log", log.contains("access_token="))
         assertFalse("join token logged:\n$log", log.contains(FAKE_JOIN_JWT))
         assertFalse("token signature logged", log.contains(FAKE_SIGNATURE))
     }

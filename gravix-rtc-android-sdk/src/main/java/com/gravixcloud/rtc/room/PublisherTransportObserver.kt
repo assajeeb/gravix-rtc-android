@@ -19,6 +19,7 @@ package com.gravixcloud.rtc.room
 
 import com.gravixcloud.rtc.room.util.PeerConnectionStateObservable
 import com.gravixcloud.rtc.util.FlowObservable
+import com.gravixcloud.rtc.util.GravixStepLogs
 import com.gravixcloud.rtc.util.GxLog
 import com.gravixcloud.rtc.util.flowDelegate
 import com.gravixcloud.rtc.webrtc.peerconnection.RTCThreadToken
@@ -49,7 +50,7 @@ internal class PublisherTransportObserver(
     override fun onIceCandidate(iceCandidate: IceCandidate?) {
         executeOnRTCThread(rtcThreadToken) {
             val candidate = iceCandidate ?: return@executeOnRTCThread
-            GxLog.v { "onIceCandidate: $candidate" }
+            GxLog.v { "onIceCandidate: ${GravixStepLogs.candidate(candidate)}" }
             client.sendCandidate(candidate, target = GravixcloudRtc.SignalTarget.PUBLISHER)
         }
     }

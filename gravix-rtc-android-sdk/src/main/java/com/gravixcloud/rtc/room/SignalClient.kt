@@ -235,7 +235,8 @@ constructor(
         val wsUrlString = "${url.toWebsocketUrl()}/rtc${createConnectionParams(getClientInfo(options.clientProtocol), options, roomOptions)}"
         isReconnecting = options.reconnect
 
-        GxLog.i { "connecting to $wsUrlString" }
+        // GRAVIX (0.1.2): no query in the line (it carries the token and the client's details)
+        GxLog.i { "connecting to ${url.toWebsocketUrl().substringBefore('?')}" }
 
         coroutineScope = CloseableCoroutineScope(SupervisorJob() + ioDispatcher)
         lastUrl = wsUrlString
@@ -477,7 +478,8 @@ constructor(
             listener?.onError(error)
             joinCont?.resumeWithException(error)
         } else {
-            GxLog.e(t) { "websocket failure: $response" }
+            // GRAVIX (0.1.2): the status only (the response's text names the url with its query)
+            GxLog.e(t) { "websocket failure: ${response?.code ?: "no response"}" }
             val error = if (joinCont != null) {
                 RoomException.ConnectException(t.localizedMessage, t)
             } else {
@@ -756,16 +758,17 @@ constructor(
     }
 
     private fun sendRequestImpl(request: GravixcloudRtc.SignalRequest) {
-        GxLog.v { "sending request: $request" }
+        // GRAVIX (0.1.2): the request's type, never its body (an offer's SDP, a candidate's ufrag, a token)
+        GxLog.v { "sending request: ${request.messageCase}" }
         if (!isConnected || currentWs == null) {
-            GxLog.w { "not connected, could not send request $request" }
+            GxLog.w { "not connected, could not send request ${request.messageCase}" }
             return
         }
         val message = request.toByteArray().toByteString()
         val sent = currentWs?.send(message) ?: false
 
         if (!sent) {
-            GxLog.e { "error sending request: $request" }
+            GxLog.e { "error sending request: ${request.messageCase}" }
         }
     }
 
@@ -774,7 +777,8 @@ constructor(
             return
         }
 
-        GxLog.v { "response: $response" }
+        // GRAVIX (0.1.2): the response's type, never its body (SDP, TURN credentials, refresh token, identities)
+        GxLog.v { "response: ${response.messageCase}" }
 
         if (!isConnected) {
             var shouldProcessMessage = false
@@ -835,7 +839,7 @@ constructor(
                     shouldProcessMessage = true
                 }
             } else {
-                GxLog.e { "Received response while not connected. $response" }
+                GxLog.e { "Received response while not connected. ${response.messageCase}" }
             }
             if (!shouldProcessMessage) {
                 return

@@ -23,6 +23,8 @@ package com.gravixcloud.rtc.util
  * - `Bearer <value>`;
  * - anything shaped like a JWT (`eyJ<header>.<payload>.<signature>`): the server's refresh token arrives in a
  *   SignalResponse, and the SDK logs every response at VERBOSE with its string fields.
+ * - (0.1.2) SDP secrets: the values of `a=ice-pwd:`, `a=ice-ufrag:`, `a=fingerprint:`, `a=crypto:` and a candidate's
+ *   `ufrag <value>` (the SDK no longer logs SDP bodies or candidates; this is defence in depth).
  *
  * Same rules as the Flutter SDK's `gravixRedactError` (plus the JWT shape). Used by [GxLog] for every message
  * while [GxLog.redactSecrets] is on.
@@ -34,6 +36,10 @@ object GxRedact {
     private val bearer = Regex("""(?i)(Bearer\s+)[A-Za-z0-9\-_.=+/]+""")
     private val jwt = Regex("""eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*""")
 
+    // GRAVIX (0.1.2): SDP secrets (an SDP body or a candidate line that reaches a log line anyway)
+    private val sdpSecret = Regex("""(?i)(a=(?:ice-pwd|ice-ufrag|fingerprint|crypto):)[^\r\n"]+""")
+    private val candidateUfrag = Regex("""(?i)(\bufrag\s+)[^\s"]+""")
+
     /** [text] with every token-shaped value replaced by [REDACTED]. */
     @JvmStatic
     fun redact(text: String): String {
@@ -42,6 +48,8 @@ object GxRedact {
         if (s.contains("token=", ignoreCase = true)) s = queryToken.replace(s) { it.groupValues[1] + REDACTED }
         if (s.contains("bearer", ignoreCase = true)) s = bearer.replace(s) { it.groupValues[1] + REDACTED }
         if (s.contains("eyJ")) s = jwt.replace(s, REDACTED)
+        if (s.contains("a=", ignoreCase = true)) s = sdpSecret.replace(s) { it.groupValues[1] + REDACTED }
+        if (s.contains("ufrag", ignoreCase = true)) s = candidateUfrag.replace(s) { it.groupValues[1] + REDACTED }
         return s
     }
 }

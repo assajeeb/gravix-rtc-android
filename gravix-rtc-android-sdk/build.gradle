@@ -134,6 +134,8 @@ dependencies {
 
     implementation libs.androidx.annotation
     implementation libs.androidx.core
+    // GRAVIX (0.1.2): GravixJoin's background guard (ProcessLifecycleOwner); no lifecycle type in the public API
+    implementation libs.androidx.lifecycle.process
     // GRAVIX(Phase 4): `api` -- generated protobuf types are in public signatures (E2EEOptions.encryptionType,
     // RoomEvent.DataReceived.encryptionType, Participant.participantInfo...) and extend protobuf-javalite classes.
     api libs.protobuf.javalite

@@ -45,7 +45,10 @@ import com.gravixcloud.rtc.room.util.waitUntilConnected
 import com.gravixcloud.rtc.util.CloseableCoroutineScope
 import com.gravixcloud.rtc.util.Either
 import com.gravixcloud.rtc.util.FlowObservable
+import com.gravixcloud.rtc.util.GravixPubLog
+import com.gravixcloud.rtc.util.GravixStepLogs
 import com.gravixcloud.rtc.util.GxLog
+import com.gravixcloud.rtc.util.LoggingLevel
 import com.gravixcloud.rtc.util.TTLMap
 import com.gravixcloud.rtc.util.executeAsync
 import com.gravixcloud.rtc.util.flow
@@ -464,7 +467,7 @@ internal constructor(
             if (probeEvery != null && url != null && sinceProbeMs >= probeEvery) {
                 sinceProbeMs = 0
                 if (gravixFailoverEvidence.reachable(url, GravixRegionFailover.PROBE_TIMEOUT_MS)) {
-                    GxLog.i { "reconnect: no network reading, but $url answers; attempting now" }
+                    GxLog.i { "reconnect: no network reading, but ${GravixStepLogs.host(url)} answers; attempting now" }
                     return true
                 }
             }
@@ -1557,10 +1560,16 @@ internal constructor(
                 }
 
                 is Either.Right -> {
-                    GxLog.e { "error setting remote description for answer: ${outcome.value} " }
+                    GxLog.e { "error setting remote description for answer: ${GravixStepLogs.safeError(outcome.value)}" }
                 }
             }
         }
+    }
+
+    /** GRAVIX (0.1.2): a [GravixPubLog] step line of the subscriber connection. */
+    private fun subLog(step: String, detail: String, at: LoggingLevel = LoggingLevel.INFO) {
+        val label = subscriber?.logLabel ?: return
+        GravixPubLog.step(step, label, detail, at)
     }
 
     override fun onServerOffer(sessionDescription: SessionDescription, offerId: Int) {
@@ -1569,7 +1578,7 @@ internal constructor(
             run {
                 when (val outcome = subscriber?.setRemoteDescription(sessionDescription, offerId).nullSafe()) {
                     is Either.Right -> {
-                        GxLog.e { "error setting remote description for offer: ${outcome.value} " }
+                        GxLog.e { "error setting remote description for offer: ${GravixStepLogs.safeError(outcome.value)}" }
                         return@launch
                     }
 
@@ -1585,7 +1594,8 @@ internal constructor(
                 when (val outcome = subscriber?.withPeerConnection { createAnswer(MediaConstraints()) }.nullSafe()) {
                     is Either.Left -> outcome.value
                     is Either.Right -> {
-                        GxLog.e { "error creating answer: ${outcome.value}" }
+                        GxLog.e { "error creating answer: ${GravixStepLogs.safeError(outcome.value)}" }
+                        subLog("answerCreate", "FAIL reason=${GravixStepLogs.reason(outcome.value)}")
                         return@launch
                     }
                 }
@@ -1597,9 +1607,10 @@ internal constructor(
 
             run<Unit> {
                 when (val outcome = subscriber?.withPeerConnection { setLocalDescription(answer) }.nullSafe()) {
-                    is Either.Left -> Unit
+                    is Either.Left -> subLog("setLocal", "answer ok mlines=${GravixStepLogs.mlines(answer.description)}")
                     is Either.Right -> {
-                        GxLog.e { "error setting local description for answer: ${outcome.value}" }
+                        GxLog.e { "error setting local description for answer: ${GravixStepLogs.safeError(outcome.value)}" }
+                        subLog("setLocal", "answer FAIL reason=${GravixStepLogs.reason(outcome.value)}")
                         return@launch
                     }
                 }
@@ -1608,12 +1619,13 @@ internal constructor(
             if (isClosed) {
                 return@launch
             }
+            subLog("answerSend", "id=$offerId", LoggingLevel.VERBOSE)
             client.sendAnswer(answer, offerId)
         }
     }
 
     override fun onTrickle(candidate: IceCandidate, target: GravixcloudRtc.SignalTarget) {
-        GxLog.v { "received ice candidate from peer: $candidate, $target" }
+        GxLog.v { "received ice candidate from peer: ${GravixStepLogs.candidate(candidate)}, $target" }
         when (target) {
             GravixcloudRtc.SignalTarget.PUBLISHER -> {
                 publisher?.addIceCandidate(candidate)

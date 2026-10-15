@@ -45,6 +45,7 @@ public class MainActivity extends Activity {
     private static final int PERMISSIONS_REQUEST = 1;
 
     private GravixRoomService service;
+    private FastJoinExample fastJoin;
     private SurfaceViewRenderer localView;
     private SurfaceViewRenderer remoteView;
     private TextView status;
@@ -122,6 +123,13 @@ public class MainActivity extends Activity {
         setContentView(buildUi());
         service.initVideoRenderer(localView);
         service.initVideoRenderer(remoteView);
+        // the fast-join API (doc/FAST_JOIN.md) is reachable, so the minified (R8) sample build keeps and checks it;
+        // only with the launch extra "fastJoinExample" (not used by the sample's own screen)
+        if (getIntent().getBooleanExtra("fastJoinExample", false)) {
+            fastJoin = new FastJoinExample(this, BuildConfig.DEFAULT_URL,
+                    (room, identity, canPublish) -> java.util.concurrent.CompletableFuture.completedFuture(""));
+            fastJoin.onCardVisible("example-room", "example-user");
+        }
     }
 
     private LinearLayout buildUi() {

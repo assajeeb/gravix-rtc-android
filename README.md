@@ -8,7 +8,7 @@ region failover and session recovery built in.
 - Packages: `com.gravixcloud.rtc` (Kotlin `Room` API), `com.gravixcloud.rtc.service` (`GravixRoomService`, the
   Java-first API)
 - minSdk 24, signalling protocol v13
-- Status: **0.1.1**, on Maven Central (see `CHANGELOG.md`)
+- Status: **0.1.2**, on Maven Central (see `CHANGELOG.md`)
 
 The engine is a white-labelled fork of the Apache-2.0 LiveKit Android SDK (v2.28.2); see `NOTICE` and
 `tools/rebrand/README.md`.
@@ -28,7 +28,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.gravixcloud:gravix-rtc-android:0.1.1")
+    implementation("com.gravixcloud:gravix-rtc-android:0.1.2")
 }
 ```
 
@@ -147,6 +147,34 @@ mute)`, `muteAllRemoteAudio`, `remoteVideoTrack(uid)`, `localVideoTrack()`, `get
 `onSlowTcpTransport`, `onDataReceived`, `onDisconnected(reason, error)`.
 `sample-app-java` is a runnable Java app (Java sources only).
 
+## Fast join (0.1.2)
+
+`GravixJoin` (`com.gravixcloud.rtc.join`) is the fast-join code apps used to write around `Room`: tokens fetched
+before the tap, the connect started at the tap and handed to the room screen (no second connect), abandoned when the
+user leaves before the room opens, one session at a time and room-to-room switches. Opt-in; `Room.connect` is
+unchanged.
+
+```kotlin
+val join = GravixJoin.Builder(context, GravixJoinTokenProvider(GravixJoinTokenFetcher { r ->
+    GravixJoinCredentials(serverUrl, myBackend.joinToken(r.room, r.identity, r.canPublish))
+})).build()
+val request = GravixJoinRequest(roomId, uid)
+join.warmAsync(request)              // a room card on screen: the token, no connect
+join.prepare(request)                // the tap: the connect starts now
+val room = join.attach(request)      // the room screen (suspend): the same connect, null = failed / ended
+```
+
+```java
+GravixJoin join = new GravixJoin.Builder(context, new GravixJoinTokenProvider(
+        GravixJoinTokenFetcher.fromFuture(r -> myBackend.joinToken(r.getRoom(), r.getIdentity(), r.getCanPublish())
+                .thenApply(token -> new GravixJoinCredentials(serverUrl, token))))).build();
+join.prepare(request);                                       // the tap
+join.prepare(request).attachAsync().thenAccept(this::show);  // the room screen (main thread; null = failed)
+```
+
+Switch, adopt, the background guards, the rejoin policy and the `[GravixJoin]` / `[GravixPub]` step logs:
+`doc/FAST_JOIN.md`.
+
 ## Reconnecting
 
 | What happened | Kotlin `RoomEvent` | Java listener | `Room.state` |
@@ -221,7 +249,7 @@ Logs never carry tokens (`GxLog.redactSecrets`, on by default).
 | Path | What |
 |---|---|
 | `gravix-rtc-android-sdk/` | the SDK (`com.gravixcloud:gravix-rtc-android`); `api/` = the locked public API dump |
-| `gravix-rtc-android-camerax/`, `gravix-rtc-android-track-processors/` | optional add-on modules (not published as of 0.1.1) |
+| `gravix-rtc-android-camerax/`, `gravix-rtc-android-track-processors/` | optional add-on modules (not published as of 0.1.2) |
 | `gravix-rtc-android-test/` | engine test harness and the unit tests (`./gradlew :gravix-rtc-android-test:testRelease`) |
 | `sample-app-basic/`, `sample-app-java/`, other `sample-app*/`, `examples/` | sample apps (Kotlin; `sample-app-java` is Java only) |
 | `protocol/` | upstream protobuf definitions (git submodule, unmodified; vendored into the public snapshot) |
