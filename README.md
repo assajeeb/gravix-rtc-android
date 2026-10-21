@@ -8,7 +8,7 @@ region failover and session recovery built in.
 - Packages: `com.gravixcloud.rtc` (Kotlin `Room` API), `com.gravixcloud.rtc.service` (`GravixRoomService`, the
   Java-first API)
 - minSdk 24, signalling protocol v13
-- Status: **0.1.2**, on Maven Central (see `CHANGELOG.md`)
+- Status: **0.2.0**, on Maven Central (see `CHANGELOG.md`)
 
 The engine is a white-labelled fork of the Apache-2.0 LiveKit Android SDK (v2.28.2); see `NOTICE` and
 `tools/rebrand/README.md`.
@@ -28,7 +28,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.gravixcloud:gravix-rtc-android:0.1.2")
+    implementation("com.gravixcloud:gravix-rtc-android:0.2.0")
 }
 ```
 
@@ -244,12 +244,89 @@ default; off = the upstream engine's behaviour; `GravixRecoveryOptions.UPSTREAM`
 
 Logs never carry tokens (`GxLog.redactSecrets`, on by default).
 
+## Noise suppression
+
+On-device noise suppression of the microphone, **on by default** (`RoomOptions.noiseSuppression` =
+`GravixNoiseSuppressionOptions()`, mode `AUTO`), as in the Flutter and JS SDKs. It also brings quiet
+microphones to a normal speech level (its pre-gain and AGC replace WebRTC's NS and AGC while it runs).
+
+| Mode | Engine |
+|---|---|
+| `AUTO` (default) | RNNoise everywhere; DeepFilterNet3 ("studio") on arm64 devices that pass the static check and a first-run benchmark |
+| `STANDARD` | RNNoise |
+| `STUDIO` | DeepFilterNet3 when its benchmark passes, else RNNoise |
+| `OFF` | none: WebRTC's own processing |
+
+```kotlin
+// off for this room
+GravixRtc.create(context, RoomOptions(noiseSuppression = GravixNoiseSuppressionOptions(mode = GravixNoiseSuppressionMode.OFF)))
+// at runtime (crossfaded): GravixNoiseSuppression.setMode(GravixNoiseSuppressionMode.STANDARD)
+// live state / stats: GravixNoiseSuppression.state (StateFlow), GravixNoiseSuppression.stats()
+```
+
+`GravixNoiseSuppressionOptions.onReport` receives every engine change with its reason (`static_low_ram`,
+`studio_slow`, `watchdog_frame`, ...). Logs: logcat tag `GravixNS`. The studio engine adds ~5.8 MB to arm64-v8a
+only; drop it with `gravixNsStudio=false` in the app's `gradle.properties` (RNNoise stays, ~125-165 KB per ABI).
+
+## Background calls (foreground service)
+
+Android silences the microphone ~5 s after an app leaves the screen unless a `microphone`-typed foreground service
+runs. The SDK ships one, `GravixCallService`, **off by default**:
+
+```kotlin
+// every room (before the first connect)
+GravixForegroundService.defaults = GravixForegroundServiceOptions(
+    enabled = true,
+    notificationTitle = "Live room",
+    notificationText = "Tap to return",
+    showLeaveAction = true,
+)
+lifecycleScope.launch { GravixForegroundService.leaveRequests.collect { room.disconnect() } }
+// or one room: RoomOptions(foregroundService = GravixForegroundServiceOptions(enabled = true))
+```
+
+- Started at `Room.connect` while the app is visible (`mediaPlayback` + `microphone` when RECORD_AUDIO is granted;
+  `includeCamera = true` adds `camera` on a camera publish). A start or type upgrade Android refuses from the background
+  is logged (`[GravixCallService]`, logcat tag `GravixCallService`) and retried on the next return to the foreground.
+- Held through the room's reconnects and through a `GravixRejoinPolicy`'s whole backoff; only the final disconnect or
+  `Room.release()` lets go, after a 3 s grace. Muting never stops it. Apps that drive it themselves use
+  `GravixForegroundService.start(context)` / `update(...)` / `stop()`.
+- Your own rejoin logic (not `GravixRejoinPolicy`): take `val hold = GravixForegroundService.hold()` while the call is
+  up (or in the `Disconnected` handler, within the 3 s grace) and `hold?.release()` once the rejoin worked or you gave
+  up; otherwise the service stops 3 s after the final disconnect and Android 14 refuses to start it again from the
+  background. `hold()` never starts the service (null when it is not in use), and releasing it never drops a room's
+  own hold.
+- The SDK asks for no runtime permission: request `POST_NOTIFICATIONS` (Android 13+) yourself before the first
+  connect, or the service runs without a visible notification. Notification icon: `notificationIcon` or the
+  manifest meta-data `com.gravixcloud.rtc.call_notification_icon`. `backgroundKeepAlive` (default on) holds a wake and
+  a Wi-Fi lock while it runs.
+- Manifest: the SDK merges the service (`microphone|mediaPlayback|camera`) and `FOREGROUND_SERVICE_MICROPHONE`,
+  `_MEDIA_PLAYBACK`, `_CAMERA`, `POST_NOTIFICATIONS`, `WAKE_LOCK`. While they are in the merged manifest the Play
+  Console asks for foreground-service declarations (targetSdk 34+) even if the app never enables the service, so apps
+  that never enable it drop them (keep `POST_NOTIFICATIONS` / `WAKE_LOCK` if the app uses them itself); apps that do
+  enable it declare the microphone (and, with `includeCamera`, camera) foreground-service use in the Play Console.
+
+```xml
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" tools:node="remove" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" tools:node="remove" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" tools:node="remove" />
+    <application>
+        <service android:name="com.gravixcloud.rtc.service.GravixCallService" tools:node="remove" />
+    </application>
+</manifest>
+```
+- Migrating `sample-app-common` (or an app with its own call service): delete the app's `ForegroundService` and its
+  manifest entry, remove the `startForegroundService` / `stopService` calls in `CallViewModel`, and set
+  `RoomOptions(foregroundService = GravixForegroundServiceOptions(enabled = true))` (unlike the app's service, the SDK
+  keeps it through rejoins and restarts nothing from the background).
+
 ## Repository layout
 
 | Path | What |
 |---|---|
 | `gravix-rtc-android-sdk/` | the SDK (`com.gravixcloud:gravix-rtc-android`); `api/` = the locked public API dump |
-| `gravix-rtc-android-camerax/`, `gravix-rtc-android-track-processors/` | optional add-on modules (not published as of 0.1.2) |
+| `gravix-rtc-android-camerax/`, `gravix-rtc-android-track-processors/` | optional add-on modules (not published as of 0.2.0) |
 | `gravix-rtc-android-test/` | engine test harness and the unit tests (`./gradlew :gravix-rtc-android-test:testRelease`) |
 | `sample-app-basic/`, `sample-app-java/`, other `sample-app*/`, `examples/` | sample apps (Kotlin; `sample-app-java` is Java only) |
 | `protocol/` | upstream protobuf definitions (git submodule, unmodified; vendored into the public snapshot) |

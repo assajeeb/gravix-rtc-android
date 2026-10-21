@@ -90,7 +90,20 @@ data class GravixRegionMeasurementResult @JvmOverloads constructor(
     val ttlMs: Long = GravixRegionMeasurements.TTL_MS,
     val selectReason: GravixRegionSelectReason? = null,
     val challenger: GravixRegionChallenger? = null,
+    /**
+     * GRAVIX (2026-10-21, per-region media): for a medium some measured region does not take, the region joins of
+     * that medium use -- the same hysteresis as [best] (an anchor per medium, a rival must win twice by the keep
+     * margin), over the regions that take it. Absent: [best] serves. See [bestFor].
+     */
+    val bestByMedia: Map<GravixRoomMedia, GravixRegionMeasurement> = emptyMap(),
+    /** How [bestByMedia] was chosen, per medium. */
+    val mediaSelectReason: Map<GravixRoomMedia, GravixRegionSelectReason> = emptyMap(),
+    /** A rival not yet confirmed, per medium. */
+    val mediaChallenger: Map<GravixRoomMedia, GravixRegionChallenger> = emptyMap(),
 ) {
+    /** The region a [media] join should prefer: [bestByMedia], else [best]. */
+    fun bestFor(media: GravixRoomMedia?): GravixRegionMeasurement? = media?.let { bestByMedia[it] } ?: best
+
     /** True while [nowMs] (wall clock) is within the answer's TTL. */
     fun isFreshAt(nowMs: Long): Boolean = nowMs - measuredAtMs <= ttlMs
 }

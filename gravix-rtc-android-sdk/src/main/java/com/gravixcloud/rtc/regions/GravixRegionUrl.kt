@@ -26,12 +26,16 @@ package com.gravixcloud.rtc.regions
  *   match [region]. Null: the origin is probed (HEAD).
  * @property estRttMs the gateway's estimate of this client's RTT to the region (`est_rtt_ms`); only used to
  *   choose WHICH regions to measure, never as a measurement.
+ * @property media GRAVIX (2026-10-21): the media this region's servers take (`media` in `GET /v1/regions`, e.g.
+ *   `["audio"]` for an audio-only region). Null = every medium (old servers, regions with no restriction). See
+ *   [GravixRegionMedia].
  */
 data class GravixRegionUrl @JvmOverloads constructor(
     val region: String,
     val url: String,
     val probeUrl: String? = null,
     val estRttMs: Double? = null,
+    val media: List<String>? = null,
 ) {
     override fun toString(): String = "$region=$url"
 

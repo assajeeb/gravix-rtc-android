@@ -22,6 +22,7 @@ import android.os.Looper
 import com.gravixcloud.rtc.ConnectOptions
 import com.gravixcloud.rtc.GravixRtc
 import com.gravixcloud.rtc.regions.GravixRegionMeasurements
+import com.gravixcloud.rtc.regions.GravixRegionMedia
 import com.gravixcloud.rtc.room.Room
 import com.gravixcloud.rtc.util.GravixLogSink
 import com.gravixcloud.rtc.util.LoggingLevel
@@ -191,9 +192,9 @@ class GravixJoin private constructor(builder: Builder) {
         h = GravixPrejoin(
             owner = this,
             request = request,
-            target = { joinTarget(h, isSwitch, prevDownRef.await(), appDone, credentials) },
+            target = { joinTarget(h, isSwitch, prevDownRef.await(), appDone, credentials, options) },
             createRoom = createRoom ?: GravixJoinRoomFactory { defaultRoom() },
-            connectFn = hooks?.connect ?: defaults.connect ?: defaultConnect(options),
+            connectFn = hooks?.connect ?: defaults.connect ?: defaultConnect(options, request),
             leaveFn = leave ?: GravixJoinLeave.DEFAULT,
             attachTimeoutMs = attachTimeoutMs,
             abandonInBackground = hooks?.abandonInBackground ?: defaults.abandonInBackground ?: abandonInBackground,
@@ -248,12 +249,14 @@ class GravixJoin private constructor(builder: Builder) {
     }
 
     /** What a join started here dials: after the previous session's leave and the app's beforeConnect, the token. */
+    @Suppress("LongParameterList")
     private suspend fun joinTarget(
         h: GravixPrejoin,
         isSwitch: Boolean,
         prevDown: Job?,
         appDone: Deferred<Boolean>?,
         credentials: Deferred<GravixJoinCredentials>,
+        options: ConnectOptions?,
     ): GravixJoinCredentials {
         prevDown?.join()
         val ok = appDone?.await() ?: true
@@ -272,9 +275,12 @@ class GravixJoin private constructor(builder: Builder) {
             throw e
         }
         h.mark(GravixJoinEventKind.TOKEN_READY, if (c.fromCache) "cached" else "fetched")
-        // the measured nearest region when the url is one of the measured regions (a lookup, never a probe)
+        // the measured nearest region when the url is one of the measured regions (a lookup, never a probe), among
+        // the regions allowing the join's media (2026-10-21: the request's, promoted by a camera on connect or the
+        // token's video grant; GravixRegionMedia)
         val url = try {
-            GravixRegionMeasurements.resolveConnectUrl(c.url)
+            val media = GravixRegionMedia.joinMedia(h.request.media ?: options?.media, options?.video == true, c.token)
+            GravixRegionMeasurements.resolveConnectUrl(c.url, media = media)
         } catch (e: Exception) {
             h.log("error", "region lookup threw ${e.javaClass.simpleName}: the token's url", LoggingLevel.VERBOSE)
             c.url
@@ -289,8 +295,10 @@ class GravixJoin private constructor(builder: Builder) {
         return GravixRtc.create(ctx)
     }
 
-    private fun defaultConnect(options: ConnectOptions?): GravixJoinConnect = GravixJoinConnect { room, c ->
-        room.connect(c.url, c.token, options ?: ConnectOptions())
+    private fun defaultConnect(options: ConnectOptions?, request: GravixJoinRequest): GravixJoinConnect = GravixJoinConnect { room, c ->
+        val o = options ?: ConnectOptions()
+        // GRAVIX (2026-10-21): the request's media reaches the Room (its failover order) unless the options name one
+        room.connect(c.url, c.token, if (o.media == null && request.media != null) o.copy(media = request.media) else o)
     }
 
     // ------------------------------------------------------------------------------------------- adopt

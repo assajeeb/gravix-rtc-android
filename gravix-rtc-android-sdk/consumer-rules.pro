@@ -63,3 +63,8 @@
 #########################################
 -keep class com.gravixcloud.rtc.audioswitch.** { *; }
 -keepattributes InnerClasses
+
+# GRAVIX noise suppression (2026-10-21): JNI entry points are looked up by class and method name
+#########################################
+-keep class com.gravixcloud.rtc.noise.GxNsNative { native <methods>; }
+-keep class com.gravixcloud.rtc.noise.GxNsStudio { native <methods>; }

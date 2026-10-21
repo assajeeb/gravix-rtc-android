@@ -6,7 +6,7 @@ deployment waits in the Central Portal until the owner presses **Publish**.
 
 Publishing is configured in `gravix-rtc-android-sdk/build.gradle` (vanniktech maven-publish 0.34.0, base plugin;
 the same task and property names as `gravix-token-java`). Only `gravix-rtc-android` is published; the camerax,
-track-processors and test modules are not (as of 0.1.2).
+track-processors and test modules are not (as of 0.2.0).
 
 ## One-time setup (owner)
 

@@ -957,7 +957,8 @@ constructor(
             }
 
             GravixcloudRtc.SignalResponse.MessageCase.REQUEST_RESPONSE -> {
-                // TODO
+                // GRAVIX (2026-10-21): only the message is read (per-region media: `media_not_allowed`)
+                listener?.onGravixRequestResponse(response.requestResponse.message)
             }
 
             GravixcloudRtc.SignalResponse.MessageCase.ROOM_MOVED -> {
@@ -1075,6 +1076,9 @@ constructor(
         fun onSubscribedQualityUpdate(subscribedQualityUpdate: GravixcloudRtc.SubscribedQualityUpdate)
         fun onSubscriptionPermissionUpdate(subscriptionPermissionUpdate: GravixcloudRtc.SubscriptionPermissionUpdate)
         fun onSubscriptionError(subscriptionResponse: GravixcloudRtc.SubscriptionResponse)
+
+        /** GRAVIX (2026-10-21): a request response's message (e.g. `media_not_allowed`). */
+        fun onGravixRequestResponse(message: String) {}
         fun onRefreshToken(token: String)
         fun onLocalTrackUnpublished(trackUnpublished: GravixcloudRtc.TrackUnpublishedResponse)
         fun onLocalTrackSubscribed(trackSubscribed: GravixcloudRtc.TrackSubscribed)

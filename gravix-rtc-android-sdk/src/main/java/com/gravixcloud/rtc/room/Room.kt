@@ -37,6 +37,7 @@ import com.gravixcloud.rtc.audio.AudioSwitchHandler
 import com.gravixcloud.rtc.audio.AuthedAudioProcessingController
 import com.gravixcloud.rtc.audio.CommunicationWorkaround
 import com.gravixcloud.rtc.audio.startPreconnectAudioJob
+import com.gravixcloud.rtc.audioswitch.AudioDeviceChangeListener
 import com.gravixcloud.rtc.dagger.InjectionNames
 import com.gravixcloud.rtc.e2ee.E2EEManager
 import com.gravixcloud.rtc.e2ee.E2EEOptions
@@ -48,8 +49,13 @@ import com.gravixcloud.rtc.events.collect
 import com.gravixcloud.rtc.join.GravixJoinLog
 import com.gravixcloud.rtc.join.gravixSessionKeyOf
 import com.gravixcloud.rtc.memory.CloseableManager
+import com.gravixcloud.rtc.noise.GravixNoiseSuppression
+import com.gravixcloud.rtc.noise.GravixNoiseSuppressionOptions
 import com.gravixcloud.rtc.regions.GravixRegionFailoverOrder
+import com.gravixcloud.rtc.regions.GravixRegionLog
+import com.gravixcloud.rtc.regions.GravixRegionMedia
 import com.gravixcloud.rtc.regions.GravixRegionUrl
+import com.gravixcloud.rtc.regions.GravixRoomMedia
 import com.gravixcloud.rtc.renderer.TextureViewRenderer
 import com.gravixcloud.rtc.room.datastream.incoming.IncomingDataStreamManager
 import com.gravixcloud.rtc.room.metrics.collectMetrics
@@ -78,6 +84,8 @@ import com.gravixcloud.rtc.room.track.Track
 import com.gravixcloud.rtc.room.track.TrackPublication
 import com.gravixcloud.rtc.room.types.toSDKType
 import com.gravixcloud.rtc.room.util.ConnectionWarmer
+import com.gravixcloud.rtc.service.GravixForegroundService
+import com.gravixcloud.rtc.service.GravixForegroundServiceOptions
 import com.gravixcloud.rtc.util.FlowObservable
 import com.gravixcloud.rtc.util.GravixStepLogs
 import com.gravixcloud.rtc.util.GxLog
@@ -255,6 +263,8 @@ constructor(
                 }
 
                 State.DISCONNECTED -> {
+                    // GRAVIX: a FINAL disconnect (reconnects stay RECONNECTING); stops after a grace unless held
+                    GravixForegroundService.release(this@Room)
                     audioHandler.stop()
                     communicationWorkaround.stop()
                     audioRecordPrewarmer.stop()
@@ -368,6 +378,22 @@ constructor(
     var gravixRecovery: GravixRecoveryOptions by engine::gravixRecovery
 
     /**
+     * GRAVIX (2026-10-21): on-device noise suppression applied at the next [connect], before its microphone is
+     * created (see [RoomOptions.noiseSuppression]). On by default (mode auto). Off: a mode-OFF options
+     * ([GravixNoiseSuppressionOptions.LEGACY]). Null = not managed by this room (WebRTC's own NS unless
+     * [GravixNoiseSuppression] was configured elsewhere).
+     */
+    var noiseSuppression: GravixNoiseSuppressionOptions? = GravixNoiseSuppressionOptions()
+
+    private var gravixNsRouteListener: AudioDeviceChangeListener? = null
+
+    /**
+     * GRAVIX (2026-10-21): the Android call foreground service for this room; null = [GravixForegroundService.defaults]
+     * (off unless the app turned it on). See [RoomOptions.foregroundService].
+     */
+    var foregroundService: GravixForegroundServiceOptions? = null
+
+    /**
      * GRAVIX: the url the session is connected to -- after a region failover or a full rejoin to another region,
      * NOT the url passed to [connect]. Kept through a resume and while reconnecting; null when disconnected. An
      * app's server indicator should read this (or follow [RoomEvent.ConnectedUrlChanged]).
@@ -389,6 +415,138 @@ constructor(
 
     /** GRAVIX: region / url pairs this room may connect to (e.g. the token's region list), to name [connectedRegion]. */
     var gravixRegionHints: List<GravixRegionUrl> = emptyList()
+
+    /**
+     * GRAVIX (2026-10-21, per-region media): the media of the current connect ([ConnectOptions.media], promoted by
+     * [ConnectOptions.video] or the token's video grant; see [GravixRegionMedia.joinMedia]). A region failover tries
+     * the regions that allow it first (the others stay as the last resort). Null before the first connect.
+     */
+    @Volatile
+    var gravixJoinMedia: GravixRoomMedia? = null
+        private set
+
+    /** GRAVIX (2026-10-21): the one media move of this session is done ([gravixFailoverForMediaRefusal]). */
+    @Volatile
+    private var gravixMediaMoveDone = false
+
+    /**
+     * GRAVIX (2026-10-21, per-region media): [reason] (a signal request response message, a publish error, a leave
+     * reason) says this node refuses a medium (`media_not_allowed`, [GravixRegionMedia.isMediaNotAllowed]; the SFU
+     * answers a video publish on a video-off node with exactly `media_not_allowed`, no medium named = video): the
+     * region is noted as refusing that medium ([GravixRegionMedia.noteRefused], 10 min) and the session moves once, by
+     * a full reconnect, to the next region that takes it (the region failover's order, refusing / disallowed regions
+     * last). After the move the refused camera is published again if the app had asked for it
+     * ([com.gravixcloud.rtc.room.participant.LocalParticipant.gravixCameraWanted]). True when it moved.
+     *
+     * The session's [gravixJoinMedia] is promoted to the refused medium (all later restarts / failovers order regions
+     * for it). With [GravixRecoveryOptions.mediaRefusalFailover] off nothing of this happens (no note, no promotion).
+     *
+     * Not when [GravixRecoveryOptions.mediaRefusalFailover] is off, after the first move of this session, without a
+     * region list, or when no other region takes the medium (the refusal stays the app's). Called by the SDK on a
+     * refused signal request; an app may call it with a publish error. Never throws (except the caller's
+     * cancellation).
+     */
+    @Suppress("ReturnCount", "TooGenericExceptionCaught")
+    suspend fun gravixFailoverForMediaRefusal(reason: Any?): Boolean {
+        if (!GravixRegionMedia.isMediaNotAllowed(reason)) return false
+        val refused = GravixRegionMedia.refusedMediaOf(reason)
+        val from = connectedUrl ?: engine.connectedUrl
+        val fromRegion = connectedRegion ?: from?.let { gravixRegionFor(it) }
+        fun log(outcome: String) = GravixRegionLog.step(
+            "mediaFailover",
+            "media=${refused.wireName} from=${fromRegion ?: "?"} $outcome cause=${GravixRegionMedia.MEDIA_NOT_ALLOWED}",
+        )
+        try {
+            val recovery = engine.gravixRecovery
+            if (!recovery.mediaRefusalFailover) {
+                // review 2026-10-21: off = upstream; the refusal steers nothing (no region note, no media change)
+                log("stay reason=option-off")
+                return false
+            }
+            if (fromRegion != null) GravixRegionMedia.noteRefused(fromRegion, refused)
+            // review 2026-10-21 (#7): the session uses the refused medium (it just tried to): every later restart /
+            // failover of this session orders regions for it, moved or not
+            val media = GravixRegionMedia.promote(gravixJoinMedia, refused)
+            if (media != gravixJoinMedia) GravixRegionLog.step("media", "media=${media.wireName} cause=refusal (was ${gravixJoinMedia?.wireName})")
+            gravixJoinMedia = media
+            (regionUrlProvider ?: engine.regionUrlProvider)?.gravixMedia = media
+            if (engine.regionUrlProvider !== regionUrlProvider) engine.regionUrlProvider?.gravixMedia = media
+            if (gravixMediaMoveDone) {
+                log("stay reason=already-moved-once")
+                return false
+            }
+            val provider = regionUrlProvider ?: engine.regionUrlProvider
+            if (provider == null || from == null) {
+                log("stay reason=no-region-list")
+                return false
+            }
+            provider.gravixMedia = media
+            val known = gravixRegionHints + GravixRegionMedia.lastDirectory() +
+                provider.gravixRegionSettings?.regions.orEmpty().map { GravixRegionUrl(it.region, it.url) }
+            val next = provider.getNextBestRegionUrl(
+                currentUrl = from,
+                measuredOrder = recovery.measuredRegionFailover,
+                lastGoodFallback = recovery.lastGoodRegionList,
+                currentUrlFailed = false,
+            )
+            if (next == null ||
+                GravixRegionFailoverOrder.normalizeUrl(next) == GravixRegionFailoverOrder.normalizeUrl(from) ||
+                !GravixRegionMedia.urlAllows(next, refused, known)
+            ) {
+                log("stay reason=no-region-allows")
+                return false
+            }
+            val toRegion = GravixRegionFailoverOrder.regionOfUrl(next, known)
+            val job = engine.gravixRestartConnection(next)
+            if (job == null) {
+                log("stay reason=error(reconnect-busy)")
+                return false
+            }
+            gravixMediaMoveDone = true
+            // names connectedRegion after the move
+            if (toRegion != null &&
+                gravixRegionHints.none { GravixRegionFailoverOrder.normalizeUrl(it.url) == GravixRegionFailoverOrder.normalizeUrl(next) }
+            ) {
+                gravixRegionHints = gravixRegionHints + GravixRegionUrl(toRegion, next)
+            }
+            log("-> ${toRegion ?: GravixJoinLog.host(next)} reason=moved")
+            job.join()
+            gravixRepublishAfterMediaMove(refused, toRegion)
+            return true
+        } catch (e: Exception) {
+            e.rethrowIfCancellationSignal()
+            log("stay reason=error(${e.javaClass.simpleName})")
+            return false
+        }
+    }
+
+    /**
+     * After a media move: the refused camera is published again on the new region. A camera already published is
+     * republished by the full reconnect itself; only one the app wanted but that never got published (the refused
+     * publish) is started here. Never throws (except the caller's cancellation).
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun gravixRepublishAfterMediaMove(refused: GravixRoomMedia, region: String?) {
+        if (refused != GravixRoomMedia.VIDEO) return
+        val local = localParticipant
+        if (!local.gravixCameraWanted) {
+            GravixRegionLog.step("mediaRepublish", "camera skip reason=not-wanted")
+            return
+        }
+        if (local.getTrackPublication(Track.Source.CAMERA) != null) {
+            GravixRegionLog.step("mediaRepublish", "camera skip reason=republished-by-reconnect")
+            return
+        }
+        GravixRegionLog.step("mediaRepublish", "camera start region=${region ?: connectedRegion ?: "?"}")
+        try {
+            local.setCameraEnabled(true)
+            val ok = local.getTrackPublication(Track.Source.CAMERA) != null
+            GravixRegionLog.step("mediaRepublish", "camera ${if (ok) "ok" else "fail reason=no-publication"}")
+        } catch (e: Exception) {
+            e.rethrowIfCancellationSignal()
+            GravixRegionLog.step("mediaRepublish", "camera fail reason=${e.javaClass.simpleName}")
+        }
+    }
 
     private val connectedUrlListeners = CopyOnWriteArrayList<GravixConnectedUrlListener>()
 
@@ -530,6 +688,8 @@ constructor(
             videoTrackPublishDefaults = videoTrackPublishDefaults,
             screenShareTrackCaptureDefaults = screenShareTrackCaptureDefaults,
             screenShareTrackPublishDefaults = screenShareTrackPublishDefaults,
+            noiseSuppression = noiseSuppression,
+            foregroundService = foregroundService,
         )
 
     /**
@@ -610,7 +770,13 @@ constructor(
             }
 
             state = State.CONNECTING
+            // GRAVIX (2026-10-21): the call foreground service starts at connect, while the app is visible (no-op unless
+            // enabled; never awaited); only the final disconnect / release lets go of it
+            GravixForegroundService.roomConnecting(this@Room, context, foregroundService)
             connectOptions = options
+            // GRAVIX (2026-10-21): the connect's media (declared, promoted by a camera on connect or the token's grant)
+            gravixMediaMoveDone = false
+            gravixJoinMedia = GravixRegionMedia.joinMedia(options.media, options.video, token)
 
             coroutineScope = CoroutineScope(defaultDispatcher + SupervisorJob())
 
@@ -641,6 +807,13 @@ constructor(
             if (audioProcessingController is AuthedAudioProcessingController) {
                 audioProcessingController.authenticate(url, token)
             }
+            // GRAVIX (2026-10-21): noise suppression is decided before any microphone of this connect is created; it
+            // runs beside the dial (never on the join path) and the microphone waits for it (awaitConfigured)
+            // (the defaults never undo an earlier configure: GravixNoiseSuppression.joinShouldConfigure)
+            roomOptions.noiseSuppression?.let { ns ->
+                GravixNoiseSuppression.configureInBackground(context, ns, audioProcessingController)
+                gravixWatchNsRoutes()
+            }
 
             // Don't use URL equals.
             if (regionUrlProvider?.serverUrl.toString() != url) {
@@ -655,6 +828,7 @@ constructor(
                 } else {
                     regionUrlProvider?.token = token
                 }
+                regionUrlProvider?.gravixMedia = gravixJoinMedia // GRAVIX (2026-10-21): media-aware failover order
 
                 // trigger the first fetch without waiting for a response
                 // if initial connection fails, this will speed up picking regional url
@@ -751,7 +925,15 @@ constructor(
             outerHandler.dispose()
             error = cause
         }
-        connectJob.join()
+        try {
+            connectJob.join()
+        } catch (e: CancellationException) {
+            // GRAVIX (2026-10-21): the caller cancelled the connect: settle DISCONNECTED (lets go of the call service,
+            // and the room can connect again) instead of staying CONNECTING until disconnect() / release()
+            GravixJoinLog.step("roomConnectCancelled", gxKey, detail = "in=${(System.nanoTime() - gxStartNs) / 1_000_000}ms")
+            handleDisconnect(DisconnectReason.CLIENT_INITIATED)
+            throw e
+        }
 
         val gxInMs = (System.nanoTime() - gxStartNs) / 1_000_000
         if (error == null) {
@@ -767,6 +949,7 @@ constructor(
                 handleDisconnect(DisconnectReason.JOIN_FAILURE)
             } else {
                 GravixJoinLog.step("roomConnectCancelled", gxKey, detail = "in=${gxInMs}ms")
+                handleDisconnect(DisconnectReason.CLIENT_INITIATED)
             }
             throw it
         }
@@ -816,9 +999,27 @@ constructor(
         options.gravixRecovery?.let {
             gravixRecovery = it
         }
+        options.noiseSuppression?.let {
+            noiseSuppression = it
+        }
+        options.foregroundService?.let {
+            foregroundService = it
+        }
         adaptiveStream = options.adaptiveStream
         dynacast = options.dynacast
         e2eeOptions = options.e2eeOptions
+    }
+
+    /** GRAVIX (noise suppression): the selected audio device feeds the processor's route (soft reset on a change). */
+    private fun gravixWatchNsRoutes() {
+        val h = audioSwitchHandler ?: return
+        if (gravixNsRouteListener != null) return
+        val l: AudioDeviceChangeListener = { _, selected ->
+            GravixNoiseSuppression.onRouteDevice(selected?.javaClass?.simpleName, h.audioMode)
+        }
+        gravixNsRouteListener = l
+        h.registerAudioDeviceChangeListener(l)
+        GravixNoiseSuppression.onRouteDevice(h.selectedAudioDevice?.javaClass?.simpleName, h.audioMode)
     }
 
     /**
@@ -828,6 +1029,7 @@ constructor(
      * must be created.
      */
     fun release() {
+        GravixForegroundService.release(this)
         disconnect()
         closeableManager.close()
     }
@@ -875,13 +1077,21 @@ constructor(
         coroutineScope.launch {
             localParticipant.events.collect {
                 when (it) {
-                    is ParticipantEvent.TrackPublished -> emitWhenConnected(
-                        RoomEvent.TrackPublished(
-                            room = this@Room,
-                            publication = it.publication,
-                            participant = it.participant,
-                        ),
-                    )
+                    is ParticipantEvent.TrackPublished -> {
+                        // GRAVIX: microphone / camera publish -> the call service's types
+                        GravixForegroundService.roomPublished(
+                            this@Room,
+                            microphone = it.publication.source == Track.Source.MICROPHONE,
+                            camera = it.publication.source == Track.Source.CAMERA,
+                        )
+                        emitWhenConnected(
+                            RoomEvent.TrackPublished(
+                                room = this@Room,
+                                publication = it.publication,
+                                participant = it.participant,
+                            ),
+                        )
+                    }
 
                     is ParticipantEvent.LocalTrackPublicationFailed -> emitWhenConnected(
                         RoomEvent.TrackPublicationFailed(
@@ -1672,6 +1882,15 @@ constructor(
     override fun onSubscriptionPermissionUpdate(subscriptionPermissionUpdate: GravixcloudRtc.SubscriptionPermissionUpdate) {
         val participant = getParticipantBySid(subscriptionPermissionUpdate.participantSid) as? RemoteParticipant ?: return
         participant.onSubscriptionPermissionUpdate(subscriptionPermissionUpdate)
+    }
+
+    /**
+     * GRAVIX (2026-10-21, per-region media): a signal request refused because this node does not take a medium
+     * (`media_not_allowed`, e.g. a video publish on an audio-only region): [gravixFailoverForMediaRefusal].
+     * @suppress
+     */
+    override fun onEngineGravixRequestResponse(message: String) {
+        if (GravixRegionMedia.isMediaNotAllowed(message)) coroutineScope.launch { gravixFailoverForMediaRefusal(message) }
     }
 
     /**

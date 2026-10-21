@@ -137,9 +137,29 @@ enum class GravixRegionPickReason(val wireName: String) {
 
     /** The room's home region, within the home margin of the fastest. */
     HOME("home"),
+
+    /**
+     * GRAVIX (2026-10-21): no measured region the room offers allows the join's media and the pinned url's region
+     * does not either: the first shortlist region allowing it (else the lowest `est_rtt_ms`, else the first offered).
+     */
+    FALLBACK("fallback"),
 }
 
-data class GravixRegionPick(val entry: GravixRegionUrl, val reason: GravixRegionPickReason)
+/**
+ * A [GravixRegionMeasurements.pickRegion] answer: the region, why, and what the media filter did.
+ *
+ * @property media the join's media (null: no filter).
+ * @property skipped measured regions the room offers that were passed over because they do not allow [media],
+ *   fastest first.
+ * @property mediaIgnored no offered region allows [media]: the pick ignored it, so the join still has a region.
+ */
+data class GravixRegionPick @JvmOverloads constructor(
+    val entry: GravixRegionUrl,
+    val reason: GravixRegionPickReason,
+    val media: GravixRoomMedia? = null,
+    val skipped: List<String> = emptyList(),
+    val mediaIgnored: Boolean = false,
+)
 
 /** The process-wide start-up region measurement: the runner, the held answer and the join-time lookups. */
 object GravixRegionMeasurements {
@@ -178,6 +198,7 @@ object GravixRegionMeasurements {
     fun clear() {
         held = null
         memoryStates.clear()
+        GravixRegionMedia.clear()
     }
 
     /** Makes [result] the held answer (tests, and apps that measured on their own). */
@@ -298,6 +319,11 @@ object GravixRegionMeasurements {
         }
         // GRAVIX(retired servers): a retired Gravix server is never probed or picked, whoever listed it
         val dir = listed.withoutRetiredServers()
+        // GRAVIX (2026-10-21): what each region allows (`media`), for the join's media filter: a lookup there, never
+        // a fetch (GravixRegionMedia)
+        GravixRegionMedia.noteDirectory(dir.regions, dir.shortlist)
+        val mediaLimited = dir.regions.filter { it.media != null }.map { "${it.region}(${it.media!!.joinToString("+")})" }
+        if (mediaLimited.isNotEmpty()) GravixRegionLog.step("directory", "media-limited ${mediaLimited.joinToString(" ")}")
 
         val sKey = "gravix.regionState:${o.regionsUrl ?: "app"}:$netKey"
         val state = memoryStates[sKey] ?: o.store?.read(sKey)?.let { NetworkState.decode(it) }
@@ -472,6 +498,11 @@ object GravixRegionMeasurements {
             }
         }
 
+        // GRAVIX (2026-10-21, per-region media): for each medium some measured region does not take, the same
+        // hysteresis over the regions that do, with its own anchor, so joins of that medium do not flip between two
+        // close regions either
+        val media = selectPerMedium(measured, state)
+
         val now = clock.wallMs()
         val result = GravixRegionMeasurementResult(
             measuredAtMs = now,
@@ -487,6 +518,9 @@ object GravixRegionMeasurements {
             ttlMs = ttl,
             selectReason = selection?.reason,
             challenger = selection?.challenger,
+            bestByMedia = media.bestByMedia,
+            mediaSelectReason = media.reasons,
+            mediaChallenger = media.challengers,
         )
 
         val measuredBest = best?.takeIf { it.ok }
@@ -506,6 +540,8 @@ object GravixRegionMeasurements {
             anchor = measuredBest?.let { RegionRtt(it.region, it.url, it.rttMs!!) } ?: liveAnchor,
             anchorAtMs = if (measuredBest != null) now else (if (liveAnchor != null) state?.anchorAtMs else null),
             challenger = if (selection != null) selection.challenger else state?.challenger,
+            mediaAnchors = media.anchorsNext,
+            mediaChallengers = media.challengersNext,
         )
         memoryStates[sKey] = newState
         try {
@@ -523,6 +559,58 @@ object GravixRegionMeasurements {
             held = if (best != null) result else (if (currentHeld?.networkKey == netKey) currentHeld else null)
         }
         return result
+    }
+
+    private class MediaSelection(
+        val bestByMedia: Map<GravixRoomMedia, GravixRegionMeasurement>,
+        val reasons: Map<GravixRoomMedia, GravixRegionSelectReason>,
+        val challengers: Map<GravixRoomMedia, GravixRegionChallenger>,
+        val anchorsNext: Map<GravixRoomMedia, MediaAnchor>,
+        val challengersNext: Map<GravixRoomMedia, GravixRegionChallenger>,
+    )
+
+    /** The per-medium selection of one run (see the call in [measureImpl]). */
+    private fun selectPerMedium(measured: List<GravixRegionMeasurement>, state: NetworkState?): MediaSelection {
+        val nowAtStart = clock.wallMs()
+        val bestByMedia = LinkedHashMap<GravixRoomMedia, GravixRegionMeasurement>()
+        val reasons = LinkedHashMap<GravixRoomMedia, GravixRegionSelectReason>()
+        val challengers = LinkedHashMap<GravixRoomMedia, GravixRegionChallenger>()
+        val anchorsNext = LinkedHashMap(state?.mediaAnchors.orEmpty())
+        val challengersNext = LinkedHashMap(state?.mediaChallengers.orEmpty())
+        for (media in GravixRoomMedia.entries) {
+            val takes = measured.filter { GravixRegionMedia.regionAllows(it.entry, media) }
+            if (takes.size == measured.size || takes.isEmpty()) continue
+            val mAnchor = state?.liveMediaAnchor(media, nowAtStart)
+            val sel = GravixRegionSelector.select(
+                takes.map { GravixRegionSample(it.region, it.status.wireName, it.rttMs) },
+                anchor = mAnchor?.region,
+                challenger = state?.mediaChallengers?.get(media),
+                anchorKnown = mAnchor != null,
+            ) ?: continue // no evidence: the anchor and its votes stay
+            val m = takes.first { it.region == sel.region }
+            val chosen = if (m.ok) {
+                m
+            } else {
+                m.copy(rttMs = mAnchor!!.rttMs, status = GravixRegionMeasurementStatus.OK, source = GravixRegionCandidateSource.CACHE)
+            }
+            bestByMedia[media] = chosen
+            reasons[media] = sel.reason
+            val ch = sel.challenger
+            if (ch != null) {
+                challengers[media] = ch
+                challengersNext[media] = ch
+            } else {
+                challengersNext.remove(media)
+            }
+            anchorsNext[media] = MediaAnchor(RegionRtt(chosen.region, chosen.url, chosen.rttMs!!), clock.wallMs())
+            GravixRegionLog.step(
+                "select",
+                "media=${media.wireName} -> ${chosen.region} rtt=${chosen.rttMs} reason=${sel.reason.wireName}" +
+                    (mAnchor?.let { " anchor=${it.region}" } ?: "") +
+                    (ch?.let { " challenger=${it.region}x${it.wins}" } ?: ""),
+            )
+        }
+        return MediaSelection(bestByMedia, reasons, challengers, anchorsNext, challengersNext)
     }
 
     private fun resultFromState(s: NetworkState, networkKey: String): GravixRegionMeasurementResult? {
@@ -544,6 +632,7 @@ object GravixRegionMeasurements {
             bestSource = GravixRegionBestSource.CACHE,
             networkKey = networkKey,
             ttlMs = s.ttlMs,
+            bestByMedia = s.mediaAnchors.mapValues { (_, a) -> toM(a.rtt) },
         )
     }
 
@@ -555,17 +644,102 @@ object GravixRegionMeasurements {
      * The pinned url (the token's region: the app's own choice) is kept unless the pick is clearly faster (more
      * than max(30 ms, 20 %) lower). [homeRegion] (a viewer joining someone else's room) wins when it is offered,
      * measured `ok` and within max(25 ms, 30 %) of the fastest offered region.
+     *
+     * [media] (2026-10-21, [GravixRegionMedia]), with one `[GravixRegion] pick` line when given:
+     *  1. the candidates that allow it are the offer (entry `media`, else the last `/v1/regions` answer, else
+     *     allowed; a region that refused it lately is not) -- none does: every candidate,
+     *     [GravixRegionPick.mediaIgnored];
+     *  2. the measured pick, the pinned rule and the home rule run on that offer;
+     *  3. nothing measured on it: the pinned url stays (null, as before) when its region allows [media] or is
+     *     unknown; else the first shortlist region allowing it, the lowest `est_rtt_ms` allowing it, or the first
+     *     offered one ([GravixRegionPickReason.FALLBACK]).
      */
     @JvmStatic
     @JvmOverloads
+    @Suppress("CyclomaticComplexMethod", "LongMethod")
     fun pickRegion(
         pinnedUrl: String,
         candidates: List<GravixRegionUrl>,
         homeRegion: String? = null,
         measurement: GravixRegionMeasurementResult? = current(),
+        media: GravixRoomMedia? = null,
     ): GravixRegionPick? {
-        val m = measurement ?: return null
-        val best = m.best ?: return null
+        if (candidates.isEmpty()) return null
+        val m = measurement
+        val allowed = if (media == null) candidates else candidates.filter { GravixRegionMedia.regionAllows(it, media) }
+        val ignored = media != null && allowed.isEmpty()
+        val offer = if (ignored) candidates else allowed
+        val skipped = ArrayList<String>()
+        val skipWhy = ArrayList<String>()
+        if (m != null && media != null && !ignored) {
+            val best = m.bestFor(media)
+            val order = listOfNotNull(best) + m.regions.filter { it.region != best?.region }
+            for (r in order) {
+                if (!r.ok || r.region in skipped) continue
+                val c = candidates.firstOrNull { it.url == r.url } ?: candidates.firstOrNull { it.region == r.region }
+                if (c != null && c !in offer) {
+                    skipped.add(r.region)
+                    skipWhy.add("${r.region}(${GravixRegionMedia.skipWhy(c, media)})")
+                }
+            }
+        }
+
+        var pick = pickMeasured(pinnedUrl, offer, m, homeRegion, media)
+            ?.copy(media = media, skipped = skipped.toList(), mediaIgnored = ignored)
+        if (pick == null && media != null && !ignored) {
+            // nothing measured on the offer: the pinned url stays unless its region is known not to take [media]
+            val n = GravixRegionFailoverOrder.normalizeUrl(pinnedUrl)
+            val pinnedEntry = candidates.firstOrNull { GravixRegionFailoverOrder.normalizeUrl(it.url) == n }
+                ?: GravixRegionMedia.lastDirectory().firstOrNull { GravixRegionFailoverOrder.normalizeUrl(it.url) == n }
+            if (pinnedEntry != null && !GravixRegionMedia.regionAllows(pinnedEntry, media)) {
+                val fb = GravixRegionShortlist.fallbackRegion(
+                    GravixRegionDirectory(GravixRegionMedia.lastDirectory(), GravixRegionMedia.lastShortlist()),
+                    media,
+                )
+                val offered = fb?.let { f -> offer.firstOrNull { it.region == f.entry.region } }
+                val fallback = GravixRegionPick(
+                    offered ?: offer.first(),
+                    GravixRegionPickReason.FALLBACK,
+                    media,
+                    skipped.toList(),
+                )
+                GravixRegionLog.step(
+                    "pick",
+                    "media=${media.wireName} nothing-measured pinned=${pinnedEntry.region}(${GravixRegionMedia.skipWhy(pinnedEntry, media)})" +
+                        " -> ${fallback.entry.region} reason=fallback cause=${if (offered != null) fb.source.wireName else "first-offered"}",
+                )
+                return fallback
+            }
+        }
+        if (media != null) {
+            val p = pick
+            val rtt = p?.let { q -> m?.regions?.firstOrNull { it.region == q.entry.region && it.ok }?.rttMs }
+            val decision = if (p == null) {
+                "token-url cause=${if (m == null) "no-measurement" else "nothing-measured"}"
+            } else {
+                "${p.entry.region} rtt=${rtt ?: "?"} reason=${p.reason.wireName}"
+            }
+            GravixRegionLog.step(
+                "pick",
+                "media=${media.wireName}" +
+                    (if (skipWhy.isEmpty()) "" else " skip=${skipWhy.joinToString(",")}") +
+                    (if (ignored) " mediaIgnored(no region allows ${media.wireName})" else "") +
+                    " -> $decision",
+            )
+        }
+        return pick
+    }
+
+    private fun pickMeasured(
+        pinnedUrl: String,
+        candidates: List<GravixRegionUrl>,
+        m: GravixRegionMeasurementResult?,
+        homeRegion: String?,
+        media: GravixRoomMedia?,
+    ): GravixRegionPick? {
+        if (m == null) return null
+        if (m.best == null) return null
+        val best = m.bestFor(media) ?: return null
         if (candidates.isEmpty()) return null
         fun offeredFor(r: GravixRegionMeasurement): GravixRegionUrl? =
             candidates.firstOrNull { it.url == r.url } ?: candidates.firstOrNull { it.region == r.region }
@@ -637,7 +811,8 @@ object GravixRegionMeasurements {
         connectUrl: String,
         candidates: List<GravixRegionUrl> = measuredCandidates(connectUrl),
         homeRegion: String? = null,
-    ): String = pickRegion(connectUrl, candidates, homeRegion)?.entry?.url ?: connectUrl
+        media: GravixRoomMedia? = null,
+    ): String = pickRegion(connectUrl, candidates, homeRegion, current(), media)?.entry?.url ?: connectUrl
 
     /**
      * The measurement as the analytics / connection reports carry it: a JSON object (wire names shared with the
@@ -711,6 +886,9 @@ object GravixRegionMeasurements {
         }
     }
 
+    /** GRAVIX (2026-10-21): a per-medium anchor and when it was set (wall ms). */
+    internal data class MediaAnchor(val rtt: RegionRtt, val atMs: Long)
+
     /** Per-network state (in memory, and in the store when there is one). Same JSON as the Flutter SDK. */
     internal data class NetworkState(
         val known: List<String>,
@@ -722,8 +900,15 @@ object GravixRegionMeasurements {
         val anchor: RegionRtt? = null,
         val anchorAtMs: Long? = null,
         val challenger: GravixRegionChallenger? = null,
+        // GRAVIX (2026-10-21): per-medium anchors / challengers, wire `mediaAnchors: {video: {region, url, rttMs,
+        // atMs}}` and `mediaChallengers: {video: {region, wins}}` (the same keys in every SDK)
+        val mediaAnchors: Map<GravixRoomMedia, MediaAnchor> = emptyMap(),
+        val mediaChallengers: Map<GravixRoomMedia, GravixRegionChallenger> = emptyMap(),
     ) {
         fun freshAt(nowMs: Long) = nowMs - measuredAtMs <= ttlMs
+
+        fun liveMediaAnchor(media: GravixRoomMedia, nowMs: Long): RegionRtt? =
+            mediaAnchors[media]?.takeIf { nowMs - it.atMs <= GravixRegionSelector.ANCHOR_LIFE_MS }?.rtt
 
         fun liveAnchor(nowMs: Long): RegionRtt? =
             if (anchor != null && anchorAtMs != null && nowMs - anchorAtMs <= GravixRegionSelector.ANCHOR_LIFE_MS) anchor else null
@@ -739,6 +924,17 @@ object GravixRegionMeasurements {
                 put("anchor", JsonObject(anchor.toJson() + ("atMs" to JsonPrimitive(anchorAtMs))))
             }
             challenger?.let { put("challenger", it.toJson()) }
+            if (mediaAnchors.isNotEmpty()) {
+                put(
+                    "mediaAnchors",
+                    buildJsonObject {
+                        for ((k, a) in mediaAnchors) put(k.wireName, JsonObject(a.rtt.toJson() + ("atMs" to JsonPrimitive(a.atMs))))
+                    },
+                )
+            }
+            if (mediaChallengers.isNotEmpty()) {
+                put("mediaChallengers", buildJsonObject { for ((k, c) in mediaChallengers) put(k.wireName, c.toJson()) })
+            }
         }.toString()
 
         companion object {
@@ -762,6 +958,17 @@ object GravixRegionMeasurements {
                         anchor = if (anchor != null && atMs != null) anchor else null,
                         anchorAtMs = if (anchor != null && atMs != null) atMs else null,
                         challenger = GravixRegionChallenger.fromJson(m["challenger"]),
+                        mediaAnchors = (m["mediaAnchors"] as? JsonObject).orEmpty().mapNotNull { (k, v) ->
+                            val medium = GravixRoomMedia.fromWireName(k) ?: return@mapNotNull null
+                            val rtt = RegionRtt.from(v) ?: return@mapNotNull null
+                            val at = ((v as JsonObject)["atMs"] as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull
+                                ?: return@mapNotNull null
+                            medium to MediaAnchor(rtt, at)
+                        }.toMap(),
+                        mediaChallengers = (m["mediaChallengers"] as? JsonObject).orEmpty().mapNotNull { (k, v) ->
+                            val medium = GravixRoomMedia.fromWireName(k) ?: return@mapNotNull null
+                            medium to (GravixRegionChallenger.fromJson(v) ?: return@mapNotNull null)
+                        }.toMap(),
                     )
                 }
             } catch (_: Exception) {

@@ -19,7 +19,9 @@ package com.gravixcloud.rtc.room
 import com.gravixcloud.rtc.regions.GravixRegionMeasurement
 import com.gravixcloud.rtc.regions.GravixRegionMeasurementResult
 import com.gravixcloud.rtc.regions.GravixRegionMeasurements
+import com.gravixcloud.rtc.regions.GravixRegionMedia
 import com.gravixcloud.rtc.regions.GravixRegionUrl
+import com.gravixcloud.rtc.regions.GravixRoomMedia
 import com.gravixcloud.rtc.test.BaseTest
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.serialization.json.Json
@@ -106,6 +108,26 @@ class GravixRegionUrlProviderTest : BaseTest() {
             assertNull(next())
             assertEquals("the list host is not the url that failed: it is asked every time", 4, server.requestCount - before)
         }
+    }
+
+    @Test
+    fun aVideoJoinTriesRegionsNotTakingVideoLastNeverDropped() = runTest {
+        // 2026-10-21 per-region media: doh1 audio-only (from the last /v1/regions answer)
+        GravixRegionMedia.noteDirectory(listOf(GravixRegionUrl("doh1", doh, media = listOf("audio")), GravixRegionUrl("sgp1", sgp), GravixRegionUrl("blr1", blr)))
+        val measured = provider().apply { setServerReportedRegions(list("doh1", "sgp1", "blr1")); gravixMedia = GravixRoomMedia.VIDEO }
+
+        // no measurement: the server's order (doh1 first) with the regions not taking video last
+        suspend fun RegionUrlProvider.next(measuredOrder: Boolean) =
+            getNextBestRegionUrl(currentUrl = null, measuredOrder = measuredOrder, lastGoodFallback = true, currentUrlFailed = false)
+        assertEquals(sgp, measured.next(true))
+        assertEquals(blr, measured.next(true))
+        assertEquals(doh, measured.next(true))
+        val serverOrder = provider().apply { setServerReportedRegions(list("doh1", "sgp1", "blr1")); gravixMedia = GravixRoomMedia.VIDEO }
+        assertEquals(sgp, serverOrder.next(false))
+        assertEquals(blr, serverOrder.next(false))
+        assertEquals(doh, serverOrder.next(false))
+        val audio = provider().apply { setServerReportedRegions(list("doh1", "sgp1", "blr1")); gravixMedia = GravixRoomMedia.AUDIO }
+        assertEquals(doh, audio.next(false))
     }
 
     @Test

@@ -24,7 +24,7 @@ grepq() { grep "$@" || [ $? -eq 1 ]; }
 
 # Files the text pass never touches: legal texts (Apache-2.0 4(c)/(d)), upstream history and
 # changesets, CI that is replaced by hand, this tool, lockfiles, the protocol submodule, binaries.
-EXCLUDE_RE='^(LICENSE|NOTICE|CHANGELOG\.md|README\.md|LicenseHeaderFile\.txt|package\.json|pnpm-lock\.yaml|\.gitmodules|protocol|gradlew|gradlew\.bat)$|^(\.changeset|\.github|tools|doc/upstream|third_party|gravix-rtc-android-sdk/src/main/java/com/gravixcloud/rtc/audioswitch)/|^gradle/gravix-proto-names\.gradle$|\.(png|webp|jpg|jpeg|gif|ico|jar|so|aar|keystore|jks|ttf|otf|mp3|mp4|wav|y4m)$'
+EXCLUDE_RE='^(LICENSE|NOTICE|CHANGELOG\.md|README\.md|LicenseHeaderFile\.txt|package\.json|pnpm-lock\.yaml|\.gitmodules|protocol|gradlew|gradlew\.bat)$|^(\.changeset|\.github|tools|doc/upstream|third_party|gravix-rtc-android-sdk/src/main/java/com/gravixcloud/rtc/audioswitch)/|^gradle/gravix-proto-names\.gradle$|^gravix-rtc-android-sdk/src/main/cpp/gxns/|\.(png|webp|jpg|jpeg|gif|ico|jar|so|aar|keystore|jks|ttf|otf|mp3|mp4|wav|y4m|pcm|bin|onnx|ort)$'
 # File-name renames also cover binary resources (a renamed @drawable/livekit_x reference needs the file).
 NAME_EXCLUDE_RE='^(LICENSE|NOTICE|CHANGELOG\.md|README\.md|LicenseHeaderFile\.txt|protocol)$|^(\.changeset|\.github|tools|doc/upstream|third_party|gravix-rtc-android-sdk/src/main/java/com/gravixcloud/rtc/audioswitch)/|^gradle/gravix-proto-names\.gradle$'
 

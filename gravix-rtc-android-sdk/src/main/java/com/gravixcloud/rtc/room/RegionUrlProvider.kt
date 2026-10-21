@@ -21,6 +21,7 @@ import android.os.SystemClock
 import androidx.annotation.VisibleForTesting
 import com.gravixcloud.rtc.regions.GravixRegionFailoverOrder
 import com.gravixcloud.rtc.regions.GravixRegionMeasurements
+import com.gravixcloud.rtc.regions.GravixRoomMedia
 import com.gravixcloud.rtc.util.GxLog
 import com.gravixcloud.rtc.util.executeAsync
 import com.gravixcloud.rtc.util.rethrowIfCancellationSignal
@@ -134,14 +135,24 @@ constructor(
             val current = currentUrl?.let { GravixRegionFailoverOrder.normalizeUrl(it) }
             fun isCurrent(r: RegionInfo) = current != null && GravixRegionFailoverOrder.normalizeUrl(r.url) == current
             val others = regionsLeft.filter { !isCurrent(it) }
-            regionsLeft = GravixRegionFailoverOrder.order(others, GravixRegionMeasurements.current(), { it.region }, { it.url }) +
+            regionsLeft = GravixRegionFailoverOrder.order(others, GravixRegionMeasurements.current(), { it.region }, { it.url }, gravixMedia) +
                 regionsLeft.filter { isCurrent(it) }
+        } else {
+            // GRAVIX (2026-10-21): the server's order, regions not taking the join's media last
+            gravixMedia?.let { m -> regionsLeft = GravixRegionFailoverOrder.mediaLast(regionsLeft, m, { it.region }, { it.url }) }
         }
         val nextRegion = regionsLeft.firstOrNull() ?: return null
         attemptedRegions.add(nextRegion)
         GxLog.d { "next region: $nextRegion" }
         return nextRegion.url
     }
+
+    /**
+     * GRAVIX (2026-10-21, per-region media): the join's media; the failover order puts the regions that do not take it
+     * last (never dropped). Null: no media order. Set by `Room.connect`.
+     */
+    @Volatile
+    internal var gravixMedia: GravixRoomMedia? = null
 
     /** GRAVIX: the HTTP status of the last failed [fetchRegionSettings] (null when it got no answer). */
     @Volatile

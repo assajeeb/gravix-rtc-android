@@ -23,17 +23,16 @@ import android.content.Intent
 import androidx.annotation.CheckResult
 import androidx.annotation.VisibleForTesting
 import com.google.protobuf.ByteString
-import dagger.assisted.Assisted
-import dagger.assisted.AssistedFactory
-import dagger.assisted.AssistedInject
 import com.gravixcloud.rtc.ConnectOptions
 import com.gravixcloud.rtc.audio.ScreenAudioCapturer
 import com.gravixcloud.rtc.dagger.CapabilitiesGetter
 import com.gravixcloud.rtc.dagger.InjectionNames
 import com.gravixcloud.rtc.events.ParticipantEvent
+import com.gravixcloud.rtc.noise.GravixNoiseSuppression
 import com.gravixcloud.rtc.room.ClientProtocolVersion
 import com.gravixcloud.rtc.room.ConnectionState
 import com.gravixcloud.rtc.room.DefaultsManager
+import com.gravixcloud.rtc.room.GravixOpusAnswer
 import com.gravixcloud.rtc.room.RTCEngine
 import com.gravixcloud.rtc.room.Room
 import com.gravixcloud.rtc.room.SenderTransceiverHandle
@@ -64,6 +63,17 @@ import com.gravixcloud.rtc.util.GxLog
 import com.gravixcloud.rtc.util.flow
 import com.gravixcloud.rtc.util.rethrowIfCancellationSignal
 import com.gravixcloud.rtc.webrtc.sortVideoCodecPreferences
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedFactory
+import dagger.assisted.AssistedInject
+import gravixcloud.GravixcloudModels
+import gravixcloud.GravixcloudModels.AudioTrackFeature
+import gravixcloud.GravixcloudModels.Codec
+import gravixcloud.GravixcloudModels.DataPacket
+import gravixcloud.GravixcloudModels.TrackInfo
+import gravixcloud.GravixcloudRtc
+import gravixcloud.GravixcloudRtc.AddTrackRequest
+import gravixcloud.GravixcloudRtc.SimulcastCodec
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -74,14 +84,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import gravixcloud.GravixcloudModels
-import gravixcloud.GravixcloudModels.AudioTrackFeature
-import gravixcloud.GravixcloudModels.Codec
-import gravixcloud.GravixcloudModels.DataPacket
-import gravixcloud.GravixcloudModels.TrackInfo
-import gravixcloud.GravixcloudRtc
-import gravixcloud.GravixcloudRtc.AddTrackRequest
-import gravixcloud.GravixcloudRtc.SimulcastCodec
 import org.webrtc.EglBase
 import org.webrtc.PeerConnectionFactory
 import org.webrtc.RtpParameters
@@ -183,7 +185,17 @@ internal constructor(
         name: String = "",
         options: LocalAudioTrackOptions = audioTrackCaptureDefaults,
     ): LocalAudioTrack {
-        return LocalAudioTrack.createTrack(context, peerConnectionFactory, options, audioTrackFactory, name)
+        // GRAVIX (noise suppression, 2026-10-21): while our NS runs, WebRTC's NS / AGC are decided here, before the
+        // capture starts (unchanged when Gravix NS is off or not configured)
+        val track = LocalAudioTrack.createTrack(
+            context,
+            peerConnectionFactory,
+            GravixNoiseSuppression.adjustCapture(options),
+            audioTrackFactory,
+            name,
+        )
+        GravixNoiseSuppression.trackCreated(track, options, track.audioProcessingController)
+        return track
     }
 
     /**
@@ -347,11 +359,22 @@ internal constructor(
         return localTrackPublications.any { it.track == track }
     }
 
+    /**
+     * GRAVIX (2026-10-21, per-region media): the app's last camera request ([setCameraEnabled]: true = on), whether or
+     * not its publish succeeded. After a media move (a `media_not_allowed` refusal) the SDK publishes the camera again
+     * on the new region when this is true.
+     */
+    @Volatile
+    var gravixCameraWanted: Boolean = false
+        internal set
+
     private suspend fun setTrackEnabled(
         source: Track.Source,
         enabled: Boolean,
         screenCaptureParams: ScreenCaptureParams? = null,
     ): Boolean {
+        // GRAVIX (2026-10-21): what the app asked for last, so a media move can publish the camera again
+        if (source == Track.Source.CAMERA) gravixCameraWanted = enabled
         var success = false
         val pubLock = sourcePubLocks[source]!!
         pubLock.withLock {
@@ -386,6 +409,8 @@ internal constructor(
                         }
 
                         Track.Source.MICROPHONE -> {
+                            // GRAVIX (noise suppression): the microphone starts with the processing it implies
+                            GravixNoiseSuppression.awaitConfigured()
                             val track = getOrCreateDefaultAudioTrack()
                             try {
                                 track.prewarm()
@@ -496,7 +521,7 @@ internal constructor(
                 track = track,
                 options = options,
                 requestConfig = {
-                    disableDtx = !options.dtx
+                    disableDtx = !options.dtx || options.stereo
                     disableRed = !options.red
                     addAllAudioFeatures(options.getFeaturesList())
                     source = options.source?.toProto() ?: GravixcloudModels.TrackSource.MICROPHONE
@@ -741,6 +766,8 @@ internal constructor(
                 is LocalAudioTrack -> {
                     previousTrackTransceiver = track.transceiver
                     track.transceiver = transceiver
+                    // GRAVIX (2026-10-21): the SFU's answer must not drop DTX; stereo only when asked (AudioTrackPublishOptions.stereo)
+                    (options as? AudioTrackPublishOptions)?.opusAnswerPrefs()?.let { engine.registerOpusAnswerPrefs(transceiver, it.dtx, it.stereo) }
                 }
 
                 else -> {
@@ -1030,6 +1057,8 @@ internal constructor(
 
         val sid = publication.sid
         trackPublications = trackPublications.toMutableMap().apply { remove(sid) }
+        // GRAVIX (2026-10-21): the answer pin goes with the publication
+        (track as? LocalAudioTrack)?.transceiver?.let { engine.unregisterOpusAnswerPrefs(it) }
 
         if (engine.connectionState == ConnectionState.CONNECTED) {
             engine.removeTrack(track.rtcTrack)
@@ -1704,6 +1733,12 @@ data class AudioTrackPublishOptions(
     override val source: Track.Source? = null,
     override val stream: String? = null,
     override val preconnect: Boolean = false,
+    /**
+     * GRAVIX: publish as stereo (opus stereo=1, no DTX), for an app that captures stereo itself (e.g. through
+     * `javaAudioDeviceModuleCustomizer`). Default false: mono with [dtx]. Explicit, because a bitrate preset
+     * cannot tell stereo from mono.
+     */
+    val stereo: Boolean = false,
 ) : BaseAudioTrackPublishOptions(), TrackPublishOptions {
     constructor(
         name: String? = null,
@@ -1721,14 +1756,20 @@ data class AudioTrackPublishOptions(
 
     internal fun getFeaturesList(): Set<AudioTrackFeature> {
         val features = mutableSetOf<AudioTrackFeature>()
-        if (!dtx) {
+        if (!dtx || stereo) {
             features.add(AudioTrackFeature.TF_NO_DTX)
+        }
+        if (stereo) {
+            features.add(AudioTrackFeature.TF_STEREO)
         }
         if (preconnect) {
             features.add(AudioTrackFeature.TF_PRECONNECT_BUFFER)
         }
         return features
     }
+
+    /** What the publisher's answer pins for this publication (stereo: no DTX, as the JS SDK). */
+    internal fun opusAnswerPrefs(): GravixOpusAnswer.Prefs = GravixOpusAnswer.Prefs(dtx = dtx && !stereo, stereo = stereo)
 }
 
 data class ParticipantTrackPermission(

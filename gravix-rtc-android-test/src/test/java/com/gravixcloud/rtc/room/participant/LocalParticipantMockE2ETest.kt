@@ -52,6 +52,11 @@ import com.gravixcloud.rtc.test.mock.room.track.createMockLocalAudioTrack
 import com.gravixcloud.rtc.test.util.toPBByteString
 import com.gravixcloud.rtc.util.flow
 import com.gravixcloud.rtc.util.toOkioByteString
+import gravixcloud.GravixcloudModels
+import gravixcloud.GravixcloudModels.DataPacket
+import gravixcloud.GravixcloudRtc
+import gravixcloud.GravixcloudRtc.SubscribedCodec
+import gravixcloud.GravixcloudRtc.SubscribedQuality
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -64,13 +69,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
-import gravixcloud.GravixcloudModels
-import gravixcloud.GravixcloudModels.DataPacket
-import gravixcloud.GravixcloudRtc
-import gravixcloud.GravixcloudRtc.SubscribedCodec
-import gravixcloud.GravixcloudRtc.SubscribedQuality
-import org.webrtc.RtpParameters
-import org.webrtc.VideoSource
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -83,6 +81,8 @@ import org.mockito.Mockito.mock
 import org.mockito.kotlin.argThat
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
+import org.webrtc.RtpParameters
+import org.webrtc.VideoSource
 import kotlin.time.Duration.Companion.seconds
 
 @ExperimentalCoroutinesApi
@@ -283,6 +283,26 @@ class LocalParticipantMockE2ETest : MockE2ETest() {
         assertEquals(publishOptions.name, sentRequest.addTrack.name)
         assertEquals(publishOptions.source?.toProto(), sentRequest.addTrack.source)
         assertEquals(publishOptions.stream, sentRequest.addTrack.stream)
+    }
+
+    /** GRAVIX (2026-10-21, NS pause gate): the microphone is published with DTX on by default, and keeps it on republish. */
+    @Test
+    fun micPublishDefaultsToDtxAndKeepsItOnRepublish() = runTest {
+        connect()
+        assertTrue(com.gravixcloud.rtc.room.participant.AudioTrackPublishDefaults().dtx)
+        assertTrue(room.localParticipant.audioTrackPublishDefaults.dtx)
+        val track = createMockLocalAudioTrack()
+        wsFactory.ws.clearRequests()
+        room.localParticipant.publishAudioTrack(track)
+        fun lastAddTrack() = wsFactory.ws.sentRequests
+            .map { GravixcloudRtc.SignalRequest.newBuilder().mergeFrom(it.toPBByteString()).build() }
+            .last { it.hasAddTrack() }.addTrack
+        assertFalse("dtx on", lastAddTrack().disableDtx)
+
+        room.localParticipant.prepareForFullReconnect()
+        wsFactory.ws.clearRequests()
+        room.localParticipant.republishTracks()
+        assertFalse("dtx still on after the republish", lastAddTrack().disableDtx)
     }
 
     @Test

@@ -32,6 +32,9 @@ import com.gravixcloud.rtc.GravixRtc
 import com.gravixcloud.rtc.RoomOptions
 import com.gravixcloud.rtc.events.RoomEvent
 import com.gravixcloud.rtc.events.collect
+import com.gravixcloud.rtc.noise.GravixNoiseSuppression
+import com.gravixcloud.rtc.noise.GravixNoiseSuppressionMode
+import com.gravixcloud.rtc.noise.GravixNoiseSuppressionOptions
 import com.gravixcloud.rtc.regions.GravixRegionMeasureOptions
 import com.gravixcloud.rtc.regions.GravixRegionUrl
 import com.gravixcloud.rtc.regions.GravixRegions
@@ -78,9 +81,19 @@ class MainActivity : AppCompatActivity() {
         dtx = intent.getBooleanExtra("dtx", true)
 
         // Create Room object.
+        // GRAVIX (noise suppression, 2026-10-21): --es ns off|standard|studio|auto (absent = the SDK default, auto;
+        // off = plain WebRTC); --es nsScript "30:off,60:auto" switches the mode at those seconds after publishing;
+        // --ez nsCamera false publishes the microphone only. [GravixNS] lines: logcat tag GravixNS.
+        val nsMode = intent.getStringExtra("ns")?.let { GravixNoiseSuppressionMode.fromWireName(it) }
         room = GravixRtc.create(
             applicationContext,
-            RoomOptions(audioTrackPublishDefaults = AudioTrackPublishDefaults(dtx = dtx)),
+            RoomOptions(
+                audioTrackPublishDefaults = AudioTrackPublishDefaults(dtx = dtx),
+                noiseSuppression = GravixNoiseSuppressionOptions(
+                    mode = nsMode ?: GravixNoiseSuppressionMode.AUTO,
+                    onReport = { r -> Log.i(TAG, "ns report $r") },
+                ),
+            ),
         )
 
         // GRAVIX: region tests against a local sim (SIMULATED runs only):
@@ -222,7 +235,8 @@ class MainActivity : AppCompatActivity() {
             // Turn on audio/video recording.
             val localParticipant = room.localParticipant
             localParticipant.setMicrophoneEnabled(true)
-            localParticipant.setCameraEnabled(true)
+            if (intent.getBooleanExtra("nsCamera", true)) localParticipant.setCameraEnabled(true)
+            startNsHarness()
             Log.i(TAG, "published ${localParticipant.trackPublications.values.joinToString { "${it.kind}:${it.source}:${it.sid}" }}")
 
             // Attach local video camera
@@ -326,6 +340,28 @@ class MainActivity : AppCompatActivity() {
             requestPermissionLauncher.launch(neededPermissions)
         } else {
             onHasPermissions()
+        }
+    }
+
+    /** GRAVIX (noise suppression): state changes, stats every 5 s, and the nsScript mode switches (scripted runs). */
+    private fun startNsHarness() {
+        lifecycleScope.launch { GravixNoiseSuppression.state.collect { Log.i(TAG, "ns state $it") } }
+        lifecycleScope.launch {
+            while (true) {
+                delay(5000)
+                Log.i(TAG, "ns stats ${GravixNoiseSuppression.stats()}")
+            }
+        }
+        val script = intent.getStringExtra("nsScript") ?: return
+        lifecycleScope.launch {
+            var at = 0L
+            for (step in script.split(',')) {
+                val (sec, mode) = step.trim().split(':').let { it[0].toLong() to it[1] }
+                delay((sec * 1000 - at).coerceAtLeast(0))
+                at = sec * 1000
+                val m = GravixNoiseSuppressionMode.fromWireName(mode) ?: continue
+                Log.i(TAG, "ns script t=${sec}s mode=$mode -> ${GravixNoiseSuppression.setMode(m)}")
+            }
         }
     }
 

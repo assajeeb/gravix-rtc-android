@@ -21,6 +21,7 @@ import com.gravixcloud.rtc.regions.RegionTestKit.net
 import com.gravixcloud.rtc.regions.RegionTestKit.onTestScheduler
 import com.gravixcloud.rtc.regions.RegionTestKit.unknownNet
 import com.gravixcloud.rtc.regions.RegionTestKit.useVirtualClock
+import com.gravixcloud.rtc.util.GravixLogSink
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
@@ -92,6 +93,7 @@ class GravixRegionMeasurementTest {
     fun tearDown() {
         GravixRegionMeasurements.clear()
         RegionTestKit.resetClock()
+        GravixRegionLog.sink = null
     }
 
     // ------------------------------------------------------------------ parity fixture (same file as Flutter/React)
@@ -165,6 +167,148 @@ class GravixRegionMeasurementTest {
             val saved = kotlinx.serialization.json.Json.parseToJsonElement(store.read(stateKey("unknown"))!!).jsonObject
             ex["known"]?.takeIf { it != JsonNull }?.let { assertEquals(name, it, saved["known"]) }
             ex["cursor"]?.takeIf { it != JsonNull }?.let { assertEquals(name, it.jsonPrimitive.int, saved["cursor"]!!.jsonPrimitive.int) }
+        }
+    }
+
+    // 2026-10-21 per-region media: measure (media-blind), then the join's pick with its media. Candidates carry no
+    // `media` (as a token's region list): what a region allows comes from the measured /v1/regions answer.
+    @Test
+    fun mediaFixture() = runTest {
+        useVirtualClock()
+        val cases = fixture["media"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        val lines = mutableListOf<String>()
+        GravixRegionLog.sink = GravixLogSink { _, line -> lines.add(line) }
+        for (e in cases) {
+            GravixRegionMeasurements.clear()
+            lines.clear()
+            val c = e.jsonObject
+            val name = c["name"]!!.jsonPrimitive.content
+            val rawResponse = c["response"]!!.jsonObject
+            val overlay = c["regionMedia"]?.takeIf { it != JsonNull }?.jsonObject ?: JsonObject(emptyMap())
+            val listed = list(rawResponse["regions"]!!.jsonPrimitive.content)
+            val withMedia = JsonArray(
+                listed.map { r ->
+                    val o = r.jsonObject
+                    val m = overlay[o["region"]!!.jsonPrimitive.content]?.takeIf { it != JsonNull }
+                    if (m == null) o else o.with("media", m)
+                },
+            )
+            val response = rawResponse.with("regions", withMedia)
+            val rtt = c["rtt"]!!.jsonObject.mapValues { (_, v) ->
+                if (v == JsonNull) null else v.jsonArray.map { (it as? JsonPrimitive)?.longOrNull }
+            }
+            // hysteresis per medium: the per-network state seeded as the Flutter runner does (rttMs 0, atMs now)
+            val store = GravixMemoryRegionListStore()
+            val cache = c["cache"]?.takeIf { it != JsonNull }?.jsonObject
+            if (cache != null) {
+                val anchors = cache["mediaAnchors"]?.takeIf { it != JsonNull }?.jsonObject ?: JsonObject(emptyMap())
+                store.write(
+                    stateKey("unknown"),
+                    buildJsonObject {
+                        put("known", JsonArray(emptyList()))
+                        put("cursor", 0)
+                        put("measuredAtMs", 0)
+                        put("ttlMs", 1)
+                        put(
+                            "mediaAnchors",
+                            buildJsonObject {
+                                for ((medium, slug) in anchors) {
+                                    val region = slug.jsonPrimitive.content
+                                    val url = listed.first { it.jsonObject["region"]!!.jsonPrimitive.content == region }.jsonObject["url"]!!
+                                    put(
+                                        medium,
+                                        buildJsonObject {
+                                            put("region", region)
+                                            put("url", url)
+                                            put("rttMs", 0)
+                                            put("atMs", GravixRegionMeasurements.clock.wallMs())
+                                        },
+                                    )
+                                }
+                            },
+                        )
+                        cache["mediaChallengers"]?.takeIf { it != JsonNull }?.let { put("mediaChallengers", it) }
+                    }.toString(),
+                )
+            }
+            val result = measure {
+                this.regionsUrl = this@GravixRegionMeasurementTest.regionsUrl
+                fetchDirectory = serve(response)
+                sampler = Table(rtt)
+                this.store = store
+                budgetMs = 10_000
+                networkType = unknownNet()
+            }
+            val ex = c["expect"]!!.jsonObject
+            assertEquals("$name: the measurement is media-blind", ex["best"]?.takeIf { it != JsonNull }?.jsonPrimitive?.content, result.best?.region)
+            val m = GravixRoomMedia.fromWireName(c["media"]!!.jsonPrimitive.content)!!
+            if (ex.containsKey("bestForMedia")) {
+                assertEquals("$name: bestForMedia", ex["bestForMedia"]?.takeIf { it != JsonNull }?.jsonPrimitive?.content, result.bestFor(m)?.region)
+            }
+            if (ex.containsKey("mediaSelectReason")) {
+                assertEquals(
+                    "$name: mediaSelectReason",
+                    ex["mediaSelectReason"]?.takeIf { it != JsonNull }?.jsonPrimitive?.content,
+                    result.mediaSelectReason[m]?.wireName,
+                )
+            }
+            if (ex.containsKey("mediaChallenger")) {
+                assertEquals("$name: mediaChallenger", ex["mediaChallenger"]?.takeIf { it != JsonNull }, result.mediaChallenger[m]?.toJson())
+            }
+            val names = c["candidates"]?.takeIf { it != JsonNull }?.jsonArray?.map { it.jsonPrimitive.content }
+                ?: listed.map { it.jsonObject["region"]!!.jsonPrimitive.content }
+            val candidates = listed.map { it.jsonObject }
+                .filter { it["region"]!!.jsonPrimitive.content in names }
+                .map { GravixRegionUrl(it["region"]!!.jsonPrimitive.content, it["url"]!!.jsonPrimitive.content) }
+            val media = GravixRoomMedia.fromWireName(c["media"]!!.jsonPrimitive.content)!!
+            val p = GravixRegionMeasurements.pickRegion(
+                c["tokenUrl"]!!.jsonPrimitive.content,
+                candidates,
+                homeRegion = c["homeRegion"]?.takeIf { it != JsonNull }?.jsonPrimitive?.content,
+                media = media,
+            )
+            assertEquals("$name: pick", ex["pick"]?.takeIf { it != JsonNull }?.jsonPrimitive?.content, p?.entry?.region)
+            assertEquals("$name: reason", ex["reason"]?.takeIf { it != JsonNull }?.jsonPrimitive?.content, p?.reason?.wireName)
+            assertEquals(
+                "$name: skipped",
+                ex["skipped"]?.takeIf { it != JsonNull }?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList<String>(),
+                p?.skipped ?: emptyList<String>(),
+            )
+            assertEquals("$name: mediaIgnored", ex["mediaIgnored"]?.takeIf { it != JsonNull }?.jsonPrimitive?.boolean ?: false, p?.mediaIgnored ?: false)
+            assertEquals("$name: $lines", 1, lines.count { it.startsWith("[GravixRegion] pick media=${media.wireName}") })
+        }
+    }
+
+    @Test
+    fun everyMeasurementCasePicksTheSameRegionForAnAudioAndAVideoJoinWhenNoMediaIsListed() = runTest {
+        useVirtualClock()
+        for (e in fixture["cases"]!!.jsonArray) {
+            GravixRegionMeasurements.clear()
+            val c = e.jsonObject
+            val name = c["name"]!!.jsonPrimitive.content
+            val rawResponse = c["response"]!!.jsonObject
+            val listed = list(rawResponse["regions"]!!.jsonPrimitive.content)
+            val rtt = c["rtt"]!!.jsonObject.mapValues { (_, v) ->
+                if (v == JsonNull) null else v.jsonArray.map { (it as? JsonPrimitive)?.longOrNull }
+            }
+            measure {
+                this.regionsUrl = this@GravixRegionMeasurementTest.regionsUrl
+                fetchDirectory = serve(rawResponse.with("regions", listed))
+                sampler = Table(rtt)
+                this.store = GravixMemoryRegionListStore()
+                budgetMs = 10_000
+                networkType = unknownNet()
+            }
+            val candidates = listed.map { it.jsonObject }
+                .map { GravixRegionUrl(it["region"]!!.jsonPrimitive.content, it["url"]!!.jsonPrimitive.content) }
+            val token = candidates.first().url
+            val none = GravixRegionMeasurements.pickRegion(token, candidates)
+            for (media in GravixRoomMedia.entries) {
+                val p = GravixRegionMeasurements.pickRegion(token, candidates, media = media)
+                assertEquals("$name (${media.wireName})", none?.entry?.region, p?.entry?.region)
+                assertEquals("$name (${media.wireName})", none?.reason, p?.reason)
+            }
         }
     }
 

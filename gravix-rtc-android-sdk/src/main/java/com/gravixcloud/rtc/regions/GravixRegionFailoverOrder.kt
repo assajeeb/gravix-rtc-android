@@ -54,9 +54,37 @@ object GravixRegionFailoverOrder {
      *  2. the candidates the measurement has no RTT for (unmeasured, or not in it), in the server's order;
      *  3. measured `ok` but far, fastest first; then the ones whose measurement failed, in the server's order.
      * Nothing is dropped, only ordered. No measurement, or none of the candidates in it: [candidates] as given.
+     *
+     * [media] (2026-10-21, [GravixRegionMedia]): the candidates that do not take it (an audio-only region for a video
+     * join, or one that refused it lately) go after all the others, in the same order -- last resort, never dropped.
      */
     @JvmStatic
+    @JvmOverloads
     fun <T> order(
+        candidates: List<T>,
+        measurement: GravixRegionMeasurementResult?,
+        regionOf: (T) -> String,
+        urlOf: (T) -> String,
+        media: GravixRoomMedia? = null,
+    ): List<T> {
+        val ordered = orderByMeasurement(candidates, measurement, regionOf, urlOf)
+        return if (media == null) ordered else mediaLast(ordered, media, regionOf, urlOf)
+    }
+
+    /** [ordered] with the entries not taking [media] moved last (same relative order). Logs when it moved any. */
+    internal fun <T> mediaLast(ordered: List<T>, media: GravixRoomMedia, regionOf: (T) -> String, urlOf: (T) -> String): List<T> {
+        fun allows(c: T) = GravixRegionMedia.regionAllows(GravixRegionUrl(regionOf(c), urlOf(c)), media)
+        val (ok, last) = ordered.partition(::allows)
+        if (last.isNotEmpty() && ok.isNotEmpty()) {
+            GravixRegionLog.step(
+                "failoverOrder",
+                "media=${media.wireName} last=${last.joinToString(",", transform = regionOf)} first=${ok.joinToString(",", transform = regionOf)}",
+            )
+        }
+        return ok + last
+    }
+
+    private fun <T> orderByMeasurement(
         candidates: List<T>,
         measurement: GravixRegionMeasurementResult?,
         regionOf: (T) -> String,

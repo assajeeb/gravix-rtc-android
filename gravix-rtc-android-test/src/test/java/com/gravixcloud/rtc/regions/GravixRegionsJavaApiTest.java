@@ -70,5 +70,19 @@ public class GravixRegionsJavaApiTest {
         assertEquals(161L, GravixRegionFailoverOrder.nearOnlyCapMs(61));
         assertFalse(GravixRecoveryOptions.UPSTREAM.getRegionStrategyEnabled());
         assertEquals(new GravixRecoveryOptions(), new GravixRecoveryOptions(true));
+        // 2026-10-21 per-region media
+        assertEquals("wss://x.example.test",
+                GravixRegionMeasurements.resolveConnectUrl("wss://x.example.test", candidates, null, GravixRoomMedia.VIDEO));
+        assertNull(GravixRegionMeasurements.pickRegion("wss://sgp1.example.test", candidates, null, null, GravixRoomMedia.AUDIO));
+        assertEquals(GravixRoomMedia.VIDEO, GravixRegionMedia.joinMedia());
+        assertEquals(GravixRoomMedia.AUDIO, GravixRegionMedia.joinMedia(GravixRoomMedia.AUDIO, false, null));
+        assertEquals("audio", GravixRoomMedia.AUDIO.getWireName());
+        assertEquals(true, GravixRegionMedia.isMediaNotAllowed("media_not_allowed"));
+        new GravixRegionUrl("doh1", "wss://doh1.example.test", null, null, Arrays.asList("audio"));
+        new com.gravixcloud.rtc.join.GravixJoinRequest("r", "u", false, GravixRoomMedia.AUDIO);
+        new com.gravixcloud.rtc.join.GravixJoinRequest("r", "u", true);
+        assertEquals(true, new GravixRecoveryOptions().getMediaRefusalFailover());
+        assertFalse(GravixRecoveryOptions.UPSTREAM.getMediaRefusalFailover());
+        GravixRegionMeasurements.clear();
     }
 }

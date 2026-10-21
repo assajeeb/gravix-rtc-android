@@ -17,6 +17,7 @@
 
 package com.gravixcloud.rtc
 
+import com.gravixcloud.rtc.regions.GravixRoomMedia
 import com.gravixcloud.rtc.room.ClientProtocolVersion
 import com.gravixcloud.rtc.room.ProtocolVersion
 import com.gravixcloud.rtc.room.Room
@@ -62,7 +63,27 @@ data class ConnectOptions(
      * version supported by this SDK build.
      */
     val clientProtocol: ClientProtocolVersion = ClientProtocolVersion.DATA_STREAM_RPC,
+
+    /**
+     * GRAVIX (2026-10-21, per-region media): what the room uses. [GravixRoomMedia.AUDIO] for a voice room nobody
+     * publishes or watches video in (it may then be on an audio-only region, e.g. doh1); null / [GravixRoomMedia.VIDEO]
+     * (the default, the safe one) = video. Promoted to video by [video] or a token that may publish the camera / a
+     * screen share; never demoted. A region failover tries the regions that allow it first (the others stay as the
+     * last resort). See [com.gravixcloud.rtc.regions.GravixRegionMedia].
+     */
+    val media: GravixRoomMedia? = null,
 ) {
+    /** The options before [media] (2026-10-21): keeps the earlier JVM constructor for Java and binary callers. */
+    constructor(
+        autoSubscribe: Boolean,
+        iceServers: List<PeerConnection.IceServer>?,
+        rtcConfig: PeerConnection.RTCConfiguration?,
+        audio: Boolean,
+        video: Boolean,
+        protocolVersion: ProtocolVersion,
+        clientProtocol: ClientProtocolVersion,
+    ) : this(autoSubscribe, iceServers, rtcConfig, audio, video, protocolVersion, clientProtocol, null)
+
     internal var reconnect: Boolean = false
     internal var participantSid: String? = null
 }

@@ -101,6 +101,9 @@ constructor(
     private var renegotiate = false
 
     private val trackBitrates = mutableMapOf<TrackBitrateInfoKey, TrackBitrateInfo>()
+
+    /** GRAVIX (2026-10-21): published opus sections whose answer is pinned to DTX / mono ([GravixOpusAnswer]). */
+    private val opusAnswerPrefs = java.util.concurrent.ConcurrentHashMap<RtpTransceiver, GravixOpusAnswer.Prefs>()
     private var isClosed = AtomicBoolean(false)
 
     private val latestOfferId = AtomicInteger(0)
@@ -139,7 +142,19 @@ constructor(
                 pubLog("remoteSet", "$type ignored id=$offerId stale (current $currentOfferId)")
                 return@launchRTCIfNotClosed Either.Right("Old offer, ignoring. Expected: $currentOfferId, actual: $offerId")
             }
-            val result = peerConnection.setRemoteDescription(sd)
+            val answer = if (sd.type == SessionDescription.Type.ANSWER && opusAnswerPrefs.isNotEmpty()) {
+                val byMid = opusAnswerPrefs.entries.mapNotNull { (t, p) -> runCatching { t.mid }.getOrNull()?.let { it to p } }.toMap()
+                val munged = GravixOpusAnswer.munge(sd.description, byMid)
+                if (munged != sd.description) {
+                    pubLog("answerPin", "opus usedtx/stereo pinned mids=${byMid.keys.joinToString(",")}")
+                    SessionDescription(sd.type, munged)
+                } else {
+                    sd
+                }
+            } else {
+                sd
+            }
+            val result = peerConnection.setRemoteDescription(answer)
             if (result is Either.Left) {
                 pubLog(
                     "remoteSet",
@@ -384,6 +399,18 @@ constructor(
     fun registerTrackBitrateInfo(transceiver: RtpTransceiver, trackBitrateInfo: TrackBitrateInfo) {
         trackBitrates[TrackBitrateInfoKey.Transceiver(transceiver)] = trackBitrateInfo
     }
+
+    /** GRAVIX (2026-10-21): pin [transceiver]'s opus answer to [dtx] / [stereo] ([GravixOpusAnswer]). */
+    internal fun registerOpusAnswerPrefs(transceiver: RtpTransceiver, dtx: Boolean, stereo: Boolean) {
+        opusAnswerPrefs[transceiver] = GravixOpusAnswer.Prefs(dtx, stereo)
+    }
+
+    /** GRAVIX (2026-10-21): [transceiver] is no longer published (unpublish / rolled-back publish): no pin. */
+    internal fun unregisterOpusAnswerPrefs(transceiver: RtpTransceiver) {
+        opusAnswerPrefs.remove(transceiver)
+    }
+
+    internal val opusAnswerPrefCount: Int get() = opusAnswerPrefs.size
 
     suspend fun isConnected(): Boolean {
         return launchRTCIfNotClosed {

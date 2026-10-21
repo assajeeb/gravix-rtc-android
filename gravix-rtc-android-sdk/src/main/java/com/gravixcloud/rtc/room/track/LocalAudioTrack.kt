@@ -21,9 +21,6 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
-import dagger.assisted.Assisted
-import dagger.assisted.AssistedFactory
-import dagger.assisted.AssistedInject
 import com.gravixcloud.rtc.audio.AudioBufferCallback
 import com.gravixcloud.rtc.audio.AudioBufferCallbackDispatcher
 import com.gravixcloud.rtc.audio.AudioProcessingController
@@ -37,13 +34,16 @@ import com.gravixcloud.rtc.util.GxLog
 import com.gravixcloud.rtc.util.flow
 import com.gravixcloud.rtc.util.flowDelegate
 import com.gravixcloud.rtc.webrtc.peerconnection.RTCThreadToken
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedFactory
+import dagger.assisted.AssistedInject
+import gravixcloud.GravixcloudModels.AudioTrackFeature
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
-import gravixcloud.GravixcloudModels.AudioTrackFeature
 import org.webrtc.AudioTrackSink
 import org.webrtc.MediaConstraints
 import org.webrtc.PeerConnectionFactory
@@ -66,7 +66,7 @@ constructor(
     @Assisted name: String,
     @Assisted mediaTrack: org.webrtc.AudioTrack,
     @Assisted options: LocalAudioTrackOptions,
-    private val audioProcessingController: AudioProcessingController,
+    internal val audioProcessingController: AudioProcessingController,
     @Named(InjectionNames.DISPATCHER_DEFAULT)
     private val dispatcher: CoroutineDispatcher,
     @Named(InjectionNames.LOCAL_AUDIO_RECORD_SAMPLES_DISPATCHER)

@@ -2,6 +2,38 @@
 
 Upstream (LiveKit Android SDK) history up to the fork point: `doc/upstream/CHANGELOG.md`.
 
+## 0.2.0 (2026-10-22)
+
+On-device noise suppression (on by default), an opt-in call foreground service, region-aware join, and DTX/stereo
+publisher-answer fixes. Additive API; one behaviour change: the microphone is now noise-suppressed unless the app opts out.
+
+### Added: noise suppression, on (auto) by default
+- `RoomOptions.noiseSuppression` defaults to `GravixNoiseSuppressionOptions()` (mode `AUTO`: RNNoise everywhere,
+  DeepFilterNet3 on arm64 devices that pass the static check and a first-run benchmark), as in the Flutter and JS SDKs.
+  Opt out with `GravixNoiseSuppressionOptions.OFF` / `LEGACY` (mode `OFF`: WebRTC's own NS/AGC).
+- A connect with the default options never undoes an earlier `configure` (the app's off, or a runtime `setMode`).
+- Quiet-mic and DFN3 fixes (gxns resynced from the Flutter SDK): quiet microphones count as talk again, word onsets open
+  the gate at once, the pause gate follows sure talk, and DFN3 no longer erases speech from a quiet mic.
+
+### Added: call foreground service (opt-in)
+- `RoomOptions(foregroundService = GravixForegroundServiceOptions(enabled = true))` keeps the microphone and playback
+  alive in the background; the hold is kept through rejoins.
+- `GravixForegroundService.hold()` for apps with their own rejoin logic. A start while a stop is pending starts again.
+- README: Play Console foreground-service declarations apply even when unused, plus a `tools:node="remove"` manifest
+  snippet for apps that do not use the service.
+
+### Added: region-aware join (media)
+- `GravixJoinRequest.media` / `ConnectOptions.media`: regions advertising a `media` list (e.g. audio-only) are
+  skipped for joins they do not take, ordered last in failover (never dropped); a `media_not_allowed` refusal moves once
+  and the wanted camera is published again.
+
+### Fixed
+- The publisher answer keeps the microphone on DTX (`usedtx=1`, mono); a silent mic no longer sends ~37 kbps.
+  `AudioTrackPublishOptions.stereo` publishes explicit stereo (no DTX).
+- A cancelled connect now settles `DISCONNECTED` and emits `Disconnected(CLIENT_INITIATED)`, releasing the call service;
+  the room can connect again.
+- The publisher answer pin goes with its publication (unpublish / rolled-back publish).
+
 ## 0.1.2 (2026-10-15)
 
 Fast join in the SDK, a publisher negotiation fix, and secret-free step logs, ported from the Flutter SDK 0.4.19

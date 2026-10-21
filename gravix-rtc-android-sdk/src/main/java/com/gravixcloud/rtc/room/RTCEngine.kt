@@ -195,6 +195,10 @@ internal constructor(
     @Volatile
     private var fullReconnectOnNext = false
 
+    /** GRAVIX (2026-10-21): a one-shot url the next full reconnect dials first ([gravixRestartConnection]). */
+    @Volatile
+    private var gravixRestartUrl: String? = null
+
     internal var reconnectPolicy: ReconnectPolicy = DefaultReconnectPolicy()
 
     private val pendingTrackResolvers: MutableMap<String, Continuation<GravixcloudModels.TrackInfo>> =
@@ -840,6 +844,21 @@ internal constructor(
     }
 
     /**
+     * GRAVIX (2026-10-21, per-region media): a full reconnect whose first attempt dials [url] (a region the SDK picked,
+     * e.g. after a `media_not_allowed` refusal); later attempts follow the usual region strategy, with [url] as the
+     * session url. Null when a reconnect is already running, the engine is closed or no session is up (nothing
+     * started); else the reconnect's job.
+     */
+    @Synchronized
+    internal fun gravixRestartConnection(url: String): Job? {
+        if (reconnectingJob?.isActive == true || isClosed || sessionUrl == null || sessionToken == null) return null
+        gravixRestartUrl = url
+        fullReconnectOnNext = true
+        gravixReconnect(CAUSE_MEDIA_REFUSAL)
+        return reconnectingJob?.takeIf { it.isActive }
+    }
+
+    /**
      * reconnect Signal and PeerConnections
      */
     @VisibleForTesting(otherwise = VisibleForTesting.PACKAGE_PRIVATE)
@@ -867,6 +886,16 @@ internal constructor(
         }
         val forceFullReconnect = fullReconnectOnNext
         fullReconnectOnNext = false
+        // GRAVIX (2026-10-21): a restart to a url the SDK picked (gravixRestartConnection); honoured only when this
+        // reconnect starts with a full rejoin (a resume belongs where the session is)
+        val gravixTarget = gravixRestartUrl
+        gravixRestartUrl = null
+        val gravixFullFirst = when (reconnectType) {
+            ReconnectType.DEFAULT -> forceFullReconnect
+            ReconnectType.FORCE_SOFT_RECONNECT -> false
+            ReconnectType.FORCE_FULL_RECONNECT -> true
+        }
+        if (gravixTarget != null && gravixFullFirst) url = gravixTarget
         endSignalSession()
         val job = coroutineScope.launch {
             var hasResumedOnce = false
@@ -1126,7 +1155,7 @@ internal constructor(
                     // GRAVIX: where the session is now. connectedUrl is observation only; the session url follows
                     // the session (so the next resume dials where it is) only with the region strategy on.
                     connectedUrl = url
-                    if (regionStrategy != null) sessionUrl = url
+                    if (regionStrategy != null || (gravixTarget != null && gravixFullFirst)) sessionUrl = url
                     client.onPCConnected()
                     listener?.onPostReconnect(isFullReconnect)
                     return@launch
@@ -1486,6 +1515,9 @@ internal constructor(
         fun onSubscribedQualityUpdate(subscribedQualityUpdate: GravixcloudRtc.SubscribedQualityUpdate)
         fun onSubscriptionPermissionUpdate(subscriptionPermissionUpdate: GravixcloudRtc.SubscriptionPermissionUpdate)
         fun onSubscriptionError(subscriptionResponse: GravixcloudRtc.SubscriptionResponse)
+
+        /** GRAVIX (2026-10-21): a signal request response's message (e.g. `media_not_allowed`). */
+        fun onEngineGravixRequestResponse(message: String) {}
         fun onSignalConnected(isResume: Boolean)
         fun onFullReconnecting()
         suspend fun onPostReconnect(isFullReconnect: Boolean)
@@ -1536,6 +1568,7 @@ internal constructor(
         internal const val CAUSE_NETWORK = "networkAvailable"
         internal const val CAUSE_RETRY = "reconnectRetry"
         internal const val CAUSE_REQUESTED = "requested"
+        internal const val CAUSE_MEDIA_REFUSAL = "mediaRefusal"
 
         private const val DATA_CHANNEL_LOW_THRESHOLD = 2 * 1024 * 1024 // 2 MB
 
@@ -1755,6 +1788,10 @@ internal constructor(
         listener?.onSubscriptionError(subscriptionResponse)
     }
 
+    override fun onGravixRequestResponse(message: String) {
+        listener?.onEngineGravixRequestResponse(message)
+    }
+
     override fun onRefreshToken(token: String) {
         sessionToken = token
         regionUrlProvider?.token = token
@@ -1968,6 +2005,18 @@ internal constructor(
         publisher?.registerTrackBitrateInfo(cid, trackBitrateInfo)
     }
 
+    /** GRAVIX (2026-10-21): the publisher's answer for this audio section stays on DTX / mono. */
+    internal fun registerOpusAnswerPrefs(transceiver: RtpTransceiver, dtx: Boolean, stereo: Boolean) {
+        publisher?.registerOpusAnswerPrefs(transceiver, dtx, stereo)
+    }
+
+    internal fun unregisterOpusAnswerPrefs(transceiver: RtpTransceiver) {
+        publisher?.unregisterOpusAnswerPrefs(transceiver)
+    }
+
+    @VisibleForTesting
+    internal val opusAnswerPrefCount: Int get() = publisher?.opusAnswerPrefCount ?: 0
+
     internal fun removeTrack(rtcTrack: MediaStreamTrack) {
         runBlocking {
             publisher?.withPeerConnection {
@@ -2027,6 +2076,7 @@ internal constructor(
                     return@withPeerConnection false
                 }
                 val transceiver = senderTransceiver.transceiver
+                publisher.unregisterOpusAnswerPrefs(transceiver)
                 removeTrack(transceiver.sender)
                 if (stopTransceiver && !transceiver.isStopped) {
                     transceiver.stopInternal()

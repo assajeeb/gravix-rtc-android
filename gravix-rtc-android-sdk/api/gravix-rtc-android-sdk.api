@@ -42,7 +42,8 @@ public final class com/gravixcloud/rtc/BuildConfig {
 public final class com/gravixcloud/rtc/ConnectOptions {
 	public fun <init> ()V
 	public fun <init> (ZLjava/util/List;Lorg/webrtc/PeerConnection$RTCConfiguration;ZZLcom/gravixcloud/rtc/room/ProtocolVersion;Lcom/gravixcloud/rtc/room/ClientProtocolVersion;)V
-	public synthetic fun <init> (ZLjava/util/List;Lorg/webrtc/PeerConnection$RTCConfiguration;ZZLcom/gravixcloud/rtc/room/ProtocolVersion;Lcom/gravixcloud/rtc/room/ClientProtocolVersion;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (ZLjava/util/List;Lorg/webrtc/PeerConnection$RTCConfiguration;ZZLcom/gravixcloud/rtc/room/ProtocolVersion;Lcom/gravixcloud/rtc/room/ClientProtocolVersion;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)V
+	public synthetic fun <init> (ZLjava/util/List;Lorg/webrtc/PeerConnection$RTCConfiguration;ZZLcom/gravixcloud/rtc/room/ProtocolVersion;Lcom/gravixcloud/rtc/room/ClientProtocolVersion;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Z
 	public final fun component2 ()Ljava/util/List;
 	public final fun component3 ()Lorg/webrtc/PeerConnection$RTCConfiguration;
@@ -50,13 +51,15 @@ public final class com/gravixcloud/rtc/ConnectOptions {
 	public final fun component5 ()Z
 	public final fun component6 ()Lcom/gravixcloud/rtc/room/ProtocolVersion;
 	public final fun component7 ()Lcom/gravixcloud/rtc/room/ClientProtocolVersion;
-	public final fun copy (ZLjava/util/List;Lorg/webrtc/PeerConnection$RTCConfiguration;ZZLcom/gravixcloud/rtc/room/ProtocolVersion;Lcom/gravixcloud/rtc/room/ClientProtocolVersion;)Lcom/gravixcloud/rtc/ConnectOptions;
-	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/ConnectOptions;ZLjava/util/List;Lorg/webrtc/PeerConnection$RTCConfiguration;ZZLcom/gravixcloud/rtc/room/ProtocolVersion;Lcom/gravixcloud/rtc/room/ClientProtocolVersion;ILjava/lang/Object;)Lcom/gravixcloud/rtc/ConnectOptions;
+	public final fun component8 ()Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
+	public final fun copy (ZLjava/util/List;Lorg/webrtc/PeerConnection$RTCConfiguration;ZZLcom/gravixcloud/rtc/room/ProtocolVersion;Lcom/gravixcloud/rtc/room/ClientProtocolVersion;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)Lcom/gravixcloud/rtc/ConnectOptions;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/ConnectOptions;ZLjava/util/List;Lorg/webrtc/PeerConnection$RTCConfiguration;ZZLcom/gravixcloud/rtc/room/ProtocolVersion;Lcom/gravixcloud/rtc/room/ClientProtocolVersion;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;ILjava/lang/Object;)Lcom/gravixcloud/rtc/ConnectOptions;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getAudio ()Z
 	public final fun getAutoSubscribe ()Z
 	public final fun getClientProtocol ()Lcom/gravixcloud/rtc/room/ClientProtocolVersion;
 	public final fun getIceServers ()Ljava/util/List;
+	public final fun getMedia ()Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
 	public final fun getProtocolVersion ()Lcom/gravixcloud/rtc/room/ProtocolVersion;
 	public final fun getRtcConfig ()Lorg/webrtc/PeerConnection$RTCConfiguration;
 	public final fun getVideo ()Z
@@ -100,7 +103,8 @@ public final class com/gravixcloud/rtc/GravixRecoveryOptions {
 	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;)V
 	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;J)V
 	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJ)V
-	public synthetic fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZ)V
+	public synthetic fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Z
 	public final fun component10 ()Z
 	public final fun component11 ()Z
@@ -117,6 +121,7 @@ public final class com/gravixcloud/rtc/GravixRecoveryOptions {
 	public final fun component21 ()Ljava/lang/Long;
 	public final fun component22 ()J
 	public final fun component23 ()J
+	public final fun component24 ()Z
 	public final fun component3 ()Ljava/lang/Long;
 	public final fun component4 ()Z
 	public final fun component5 ()Z
@@ -124,8 +129,8 @@ public final class com/gravixcloud/rtc/GravixRecoveryOptions {
 	public final fun component7 ()Z
 	public final fun component8 ()Z
 	public final fun component9 ()Ljava/lang/Long;
-	public final fun copy (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJ)Lcom/gravixcloud/rtc/GravixRecoveryOptions;
-	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/GravixRecoveryOptions;ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJILjava/lang/Object;)Lcom/gravixcloud/rtc/GravixRecoveryOptions;
+	public final fun copy (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZ)Lcom/gravixcloud/rtc/GravixRecoveryOptions;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/GravixRecoveryOptions;ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZILjava/lang/Object;)Lcom/gravixcloud/rtc/GravixRecoveryOptions;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getFailoverNeedsEvidence ()Z
 	public final fun getFreshPeerFailedGraceMs ()Ljava/lang/Long;
@@ -134,6 +139,7 @@ public final class com/gravixcloud/rtc/GravixRecoveryOptions {
 	public final fun getLastGoodRegionList ()Z
 	public final fun getLeaveAbortsResumeWait ()Z
 	public final fun getMeasuredRegionFailover ()Z
+	public final fun getMediaRefusalFailover ()Z
 	public final fun getNetworkChangeWindowMs ()J
 	public final fun getNetworkWaitProbeIntervalMs ()Ljava/lang/Long;
 	public final fun getRefusalEndsConnect ()Z
@@ -199,10 +205,14 @@ public final class com/gravixcloud/rtc/GravixRtcOverrides {
 public final class com/gravixcloud/rtc/RoomOptions {
 	public fun <init> ()V
 	public fun <init> (ZZLcom/gravixcloud/rtc/e2ee/E2EEOptions;Lcom/gravixcloud/rtc/room/track/LocalAudioTrackOptions;Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;Lcom/gravixcloud/rtc/room/participant/AudioTrackPublishDefaults;Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;Lcom/gravixcloud/rtc/room/network/ReconnectPolicy;Lcom/gravixcloud/rtc/GravixRecoveryOptions;)V
-	public synthetic fun <init> (ZZLcom/gravixcloud/rtc/e2ee/E2EEOptions;Lcom/gravixcloud/rtc/room/track/LocalAudioTrackOptions;Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;Lcom/gravixcloud/rtc/room/participant/AudioTrackPublishDefaults;Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;Lcom/gravixcloud/rtc/room/network/ReconnectPolicy;Lcom/gravixcloud/rtc/GravixRecoveryOptions;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (ZZLcom/gravixcloud/rtc/e2ee/E2EEOptions;Lcom/gravixcloud/rtc/room/track/LocalAudioTrackOptions;Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;Lcom/gravixcloud/rtc/room/participant/AudioTrackPublishDefaults;Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;Lcom/gravixcloud/rtc/room/network/ReconnectPolicy;Lcom/gravixcloud/rtc/GravixRecoveryOptions;Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions;)V
+	public fun <init> (ZZLcom/gravixcloud/rtc/e2ee/E2EEOptions;Lcom/gravixcloud/rtc/room/track/LocalAudioTrackOptions;Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;Lcom/gravixcloud/rtc/room/participant/AudioTrackPublishDefaults;Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;Lcom/gravixcloud/rtc/room/network/ReconnectPolicy;Lcom/gravixcloud/rtc/GravixRecoveryOptions;Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions;Lcom/gravixcloud/rtc/service/GravixForegroundServiceOptions;)V
+	public synthetic fun <init> (ZZLcom/gravixcloud/rtc/e2ee/E2EEOptions;Lcom/gravixcloud/rtc/room/track/LocalAudioTrackOptions;Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;Lcom/gravixcloud/rtc/room/participant/AudioTrackPublishDefaults;Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;Lcom/gravixcloud/rtc/room/network/ReconnectPolicy;Lcom/gravixcloud/rtc/GravixRecoveryOptions;Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions;Lcom/gravixcloud/rtc/service/GravixForegroundServiceOptions;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Z
 	public final fun component10 ()Lcom/gravixcloud/rtc/room/network/ReconnectPolicy;
 	public final fun component11 ()Lcom/gravixcloud/rtc/GravixRecoveryOptions;
+	public final fun component12 ()Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions;
+	public final fun component13 ()Lcom/gravixcloud/rtc/service/GravixForegroundServiceOptions;
 	public final fun component2 ()Z
 	public final fun component3 ()Lcom/gravixcloud/rtc/e2ee/E2EEOptions;
 	public final fun component4 ()Lcom/gravixcloud/rtc/room/track/LocalAudioTrackOptions;
@@ -211,15 +221,17 @@ public final class com/gravixcloud/rtc/RoomOptions {
 	public final fun component7 ()Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;
 	public final fun component8 ()Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;
 	public final fun component9 ()Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;
-	public final fun copy (ZZLcom/gravixcloud/rtc/e2ee/E2EEOptions;Lcom/gravixcloud/rtc/room/track/LocalAudioTrackOptions;Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;Lcom/gravixcloud/rtc/room/participant/AudioTrackPublishDefaults;Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;Lcom/gravixcloud/rtc/room/network/ReconnectPolicy;Lcom/gravixcloud/rtc/GravixRecoveryOptions;)Lcom/gravixcloud/rtc/RoomOptions;
-	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/RoomOptions;ZZLcom/gravixcloud/rtc/e2ee/E2EEOptions;Lcom/gravixcloud/rtc/room/track/LocalAudioTrackOptions;Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;Lcom/gravixcloud/rtc/room/participant/AudioTrackPublishDefaults;Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;Lcom/gravixcloud/rtc/room/network/ReconnectPolicy;Lcom/gravixcloud/rtc/GravixRecoveryOptions;ILjava/lang/Object;)Lcom/gravixcloud/rtc/RoomOptions;
+	public final fun copy (ZZLcom/gravixcloud/rtc/e2ee/E2EEOptions;Lcom/gravixcloud/rtc/room/track/LocalAudioTrackOptions;Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;Lcom/gravixcloud/rtc/room/participant/AudioTrackPublishDefaults;Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;Lcom/gravixcloud/rtc/room/network/ReconnectPolicy;Lcom/gravixcloud/rtc/GravixRecoveryOptions;Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions;Lcom/gravixcloud/rtc/service/GravixForegroundServiceOptions;)Lcom/gravixcloud/rtc/RoomOptions;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/RoomOptions;ZZLcom/gravixcloud/rtc/e2ee/E2EEOptions;Lcom/gravixcloud/rtc/room/track/LocalAudioTrackOptions;Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;Lcom/gravixcloud/rtc/room/participant/AudioTrackPublishDefaults;Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;Lcom/gravixcloud/rtc/room/network/ReconnectPolicy;Lcom/gravixcloud/rtc/GravixRecoveryOptions;Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions;Lcom/gravixcloud/rtc/service/GravixForegroundServiceOptions;ILjava/lang/Object;)Lcom/gravixcloud/rtc/RoomOptions;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getAdaptiveStream ()Z
 	public final fun getAudioTrackCaptureDefaults ()Lcom/gravixcloud/rtc/room/track/LocalAudioTrackOptions;
 	public final fun getAudioTrackPublishDefaults ()Lcom/gravixcloud/rtc/room/participant/AudioTrackPublishDefaults;
 	public final fun getDynacast ()Z
 	public final fun getE2eeOptions ()Lcom/gravixcloud/rtc/e2ee/E2EEOptions;
+	public final fun getForegroundService ()Lcom/gravixcloud/rtc/service/GravixForegroundServiceOptions;
 	public final fun getGravixRecovery ()Lcom/gravixcloud/rtc/GravixRecoveryOptions;
+	public final fun getNoiseSuppression ()Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions;
 	public final fun getReconnectPolicy ()Lcom/gravixcloud/rtc/room/network/ReconnectPolicy;
 	public final fun getScreenShareTrackCaptureDefaults ()Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;
 	public final fun getScreenShareTrackPublishDefaults ()Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;
@@ -1838,9 +1850,12 @@ public final class com/gravixcloud/rtc/join/GravixJoinLog {
 public final class com/gravixcloud/rtc/join/GravixJoinRequest {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Z)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;ZLcom/gravixcloud/rtc/regions/GravixRoomMedia;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;ZLcom/gravixcloud/rtc/regions/GravixRoomMedia;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getCanPublish ()Z
 	public final fun getIdentity ()Ljava/lang/String;
+	public final fun getMedia ()Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
 	public final fun getRoom ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
@@ -2028,6 +2043,617 @@ public final class com/gravixcloud/rtc/memory/CloseableManager : java/io/Closeab
 	public final fun unregisterResource (Ljava/lang/Object;)Ljava/io/Closeable;
 }
 
+public final class com/gravixcloud/rtc/noise/GravixHeadsetNs : java/lang/Enum {
+	public static final field KEEP_OURS Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;
+	public static final field PREFER_HEADSET Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWireName ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;
+	public static fun values ()[Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixHwNs : java/lang/Enum {
+	public static final field OFF Lcom/gravixcloud/rtc/noise/GravixHwNs;
+	public static final field ON Lcom/gravixcloud/rtc/noise/GravixHwNs;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWireName ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Lcom/gravixcloud/rtc/noise/GravixHwNs;
+	public static fun values ()[Lcom/gravixcloud/rtc/noise/GravixHwNs;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNoiseSuppression {
+	public static final field INSTANCE Lcom/gravixcloud/rtc/noise/GravixNoiseSuppression;
+	public final fun configure (Landroid/content/Context;Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions;Lcom/gravixcloud/rtc/audio/AudioProcessingController;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun configure (Landroid/content/Context;Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun configure$default (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppression;Landroid/content/Context;Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions;Lcom/gravixcloud/rtc/audio/AudioProcessingController;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun getOptions ()Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions;
+	public static final fun getState ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun setMode (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun setMusicActive (Z)V
+	public static final fun stats ()Lcom/gravixcloud/rtc/noise/GravixNsStats;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNoiseSuppressionMode : java/lang/Enum {
+	public static final field AUTO Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;
+	public static final field Companion Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode$Companion;
+	public static final field OFF Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;
+	public static final field STANDARD Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;
+	public static final field STUDIO Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;
+	public static final fun fromWireName (Ljava/lang/String;)Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWireName ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;
+	public static fun values ()[Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNoiseSuppressionMode$Companion {
+	public final fun fromWireName (Ljava/lang/String;)Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions {
+	public static final field Companion Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions$Companion;
+	public static final field DEFAULT_AGC_ORDER Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;
+	public static final field DEFAULT_STUDIO_ATTEN_LIMIT_DB D
+	public static final field DEFAULT_STUDIO_P95_BUDGET_US I
+	public static final field DEFAULT_STUDIO_P95_WINDOW_MS I
+	public static final field LEGACY Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions;
+	public fun <init> ()V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;Z)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;Z)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;ZLcom/gravixcloud/rtc/noise/GravixStudioDownload;)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;ZLcom/gravixcloud/rtc/noise/GravixStudioDownload;Lcom/gravixcloud/rtc/noise/GravixStudioSource;)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;ZLcom/gravixcloud/rtc/noise/GravixStudioDownload;Lcom/gravixcloud/rtc/noise/GravixStudioSource;Ljava/lang/String;)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;ZLcom/gravixcloud/rtc/noise/GravixStudioDownload;Lcom/gravixcloud/rtc/noise/GravixStudioSource;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;ZLcom/gravixcloud/rtc/noise/GravixStudioDownload;Lcom/gravixcloud/rtc/noise/GravixStudioSource;Ljava/lang/String;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;ZLcom/gravixcloud/rtc/noise/GravixStudioDownload;Lcom/gravixcloud/rtc/noise/GravixStudioSource;Ljava/lang/String;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;I)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;ZLcom/gravixcloud/rtc/noise/GravixStudioDownload;Lcom/gravixcloud/rtc/noise/GravixStudioSource;Ljava/lang/String;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;II)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;ZLcom/gravixcloud/rtc/noise/GravixStudioDownload;Lcom/gravixcloud/rtc/noise/GravixStudioSource;Ljava/lang/String;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;III)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;ZLcom/gravixcloud/rtc/noise/GravixStudioDownload;Lcom/gravixcloud/rtc/noise/GravixStudioSource;Ljava/lang/String;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;IIIZ)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;ZLcom/gravixcloud/rtc/noise/GravixStudioDownload;Lcom/gravixcloud/rtc/noise/GravixStudioSource;Ljava/lang/String;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;IIIZZ)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;ZLcom/gravixcloud/rtc/noise/GravixStudioDownload;Lcom/gravixcloud/rtc/noise/GravixStudioSource;Ljava/lang/String;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;IIIZZD)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;ZLcom/gravixcloud/rtc/noise/GravixStudioDownload;Lcom/gravixcloud/rtc/noise/GravixStudioSource;Ljava/lang/String;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;IIIZZDI)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;ZLcom/gravixcloud/rtc/noise/GravixStudioDownload;Lcom/gravixcloud/rtc/noise/GravixStudioSource;Ljava/lang/String;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;IIIZZDII)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;ZLcom/gravixcloud/rtc/noise/GravixStudioDownload;Lcom/gravixcloud/rtc/noise/GravixStudioSource;Ljava/lang/String;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;IIIZZDIIZ)V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;ZLcom/gravixcloud/rtc/noise/GravixStudioDownload;Lcom/gravixcloud/rtc/noise/GravixStudioSource;Ljava/lang/String;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;IIIZZDIIZLcom/gravixcloud/rtc/noise/GravixNsReportListener;)V
+	public synthetic fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;ZLcom/gravixcloud/rtc/noise/GravixStudioDownload;Lcom/gravixcloud/rtc/noise/GravixStudioSource;Ljava/lang/String;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;IIIZZDIIZLcom/gravixcloud/rtc/noise/GravixNsReportListener;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;
+	public final fun component10 ()Ljava/lang/String;
+	public final fun component11 ()Lcom/gravixcloud/rtc/noise/GravixNsPolicy;
+	public final fun component12 ()I
+	public final fun component13 ()I
+	public final fun component14 ()I
+	public final fun component15 ()Z
+	public final fun component16 ()Z
+	public final fun component17 ()D
+	public final fun component18 ()I
+	public final fun component19 ()I
+	public final fun component2 ()Z
+	public final fun component20 ()Z
+	public final fun component21 ()Lcom/gravixcloud/rtc/noise/GravixNsReportListener;
+	public final fun component3 ()Lcom/gravixcloud/rtc/noise/GravixHwNs;
+	public final fun component4 ()Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;
+	public final fun component5 ()Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;
+	public final fun component6 ()Z
+	public final fun component7 ()Lcom/gravixcloud/rtc/noise/GravixStudioDownload;
+	public final fun component8 ()Lcom/gravixcloud/rtc/noise/GravixStudioSource;
+	public final fun component9 ()Ljava/lang/String;
+	public final fun copy (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;ZLcom/gravixcloud/rtc/noise/GravixStudioDownload;Lcom/gravixcloud/rtc/noise/GravixStudioSource;Ljava/lang/String;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;IIIZZDIIZLcom/gravixcloud/rtc/noise/GravixNsReportListener;)Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions;Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;ZLcom/gravixcloud/rtc/noise/GravixHwNs;Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;ZLcom/gravixcloud/rtc/noise/GravixStudioDownload;Lcom/gravixcloud/rtc/noise/GravixStudioSource;Ljava/lang/String;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;IIIZZDIIZLcom/gravixcloud/rtc/noise/GravixNsReportListener;ILjava/lang/Object;)Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAgcOrder ()Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;
+	public final fun getBatterySaverFallback ()Z
+	public final fun getBenchmarkP95Us ()I
+	public final fun getDisableWebRtcNs ()Z
+	public final fun getHardwareNs ()Lcom/gravixcloud/rtc/noise/GravixHwNs;
+	public final fun getHeadsetNs ()Lcom/gravixcloud/rtc/noise/GravixHeadsetNs;
+	public final fun getMode ()Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;
+	public final fun getMusicBypass ()Z
+	public final fun getOnReport ()Lcom/gravixcloud/rtc/noise/GravixNsReportListener;
+	public final fun getPolicy ()Lcom/gravixcloud/rtc/noise/GravixNsPolicy;
+	public final fun getPolicyUrl ()Ljava/lang/String;
+	public final fun getStudioAttenLimitDb ()D
+	public final fun getStudioDownload ()Lcom/gravixcloud/rtc/noise/GravixStudioDownload;
+	public final fun getStudioLowLatency ()Z
+	public final fun getStudioP95BudgetUs ()I
+	public final fun getStudioP95WindowMs ()I
+	public final fun getStudioPackUrl ()Ljava/lang/String;
+	public final fun getStudioSource ()Lcom/gravixcloud/rtc/noise/GravixStudioSource;
+	public final fun getThermalFallback ()Z
+	public final fun getWatchdogConsecutive ()I
+	public final fun getWatchdogFrameUs ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions$Companion {
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsAgcOrder : java/lang/Enum {
+	public static final field OWN_AFTER_NS Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;
+	public static final field WEBRTC_BEFORE_NS Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWireName ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;
+	public static fun values ()[Lcom/gravixcloud/rtc/noise/GravixNsAgcOrder;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsBenchmark {
+	public static final field Companion Lcom/gravixcloud/rtc/noise/GravixNsBenchmark$Companion;
+	public fun <init> (Ljava/lang/String;I)V
+	public fun <init> (Ljava/lang/String;IZ)V
+	public synthetic fun <init> (Ljava/lang/String;IZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()I
+	public final fun component3 ()Z
+	public final fun copy (Ljava/lang/String;IZ)Lcom/gravixcloud/rtc/noise/GravixNsBenchmark;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/noise/GravixNsBenchmark;Ljava/lang/String;IZILjava/lang/Object;)Lcom/gravixcloud/rtc/noise/GravixNsBenchmark;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getKey ()Ljava/lang/String;
+	public final fun getOutputOk ()Z
+	public final fun getP95Us ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsBenchmark$Companion {
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsDeviceFacts {
+	public static final field Companion Lcom/gravixcloud/rtc/noise/GravixNsDeviceFacts$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Double;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/String;Z)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Double;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/String;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ljava/lang/Integer;
+	public final fun component11 ()Ljava/lang/Integer;
+	public final fun component12 ()Ljava/lang/Double;
+	public final fun component13 ()Ljava/lang/Boolean;
+	public final fun component14 ()Ljava/lang/Boolean;
+	public final fun component15 ()Ljava/lang/String;
+	public final fun component16 ()Z
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/Integer;
+	public final fun component8 ()Ljava/lang/Boolean;
+	public final fun component9 ()Ljava/lang/Integer;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Double;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/String;Z)Lcom/gravixcloud/rtc/noise/GravixNsDeviceFacts;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/noise/GravixNsDeviceFacts;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Double;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/String;ZILjava/lang/Object;)Lcom/gravixcloud/rtc/noise/GravixNsDeviceFacts;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAbi ()Ljava/lang/String;
+	public final fun getAudioWorklet ()Ljava/lang/Boolean;
+	public final fun getCpuMaxFreqMhz ()Ljava/lang/Integer;
+	public final fun getDeviceMemoryGb ()Ljava/lang/Double;
+	public final fun getHardwareConcurrency ()Ljava/lang/Integer;
+	public final fun getManufacturer ()Ljava/lang/String;
+	public final fun getMediaPerformanceClass ()Ljava/lang/Integer;
+	public final fun getModel ()Ljava/lang/String;
+	public final fun getNarrowbandRoute ()Z
+	public final fun getOsVersion ()Ljava/lang/String;
+	public final fun getPlatform ()Ljava/lang/String;
+	public final fun getRamMb ()Ljava/lang/Integer;
+	public final fun getSoc ()Ljava/lang/String;
+	public final fun getUserAgent ()Ljava/lang/String;
+	public final fun getWasmSimd ()Ljava/lang/Boolean;
+	public fun hashCode ()I
+	public final fun isLowRamDevice ()Ljava/lang/Boolean;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsDeviceFacts$Companion {
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsEngine : java/lang/Enum {
+	public static final field BROWSER Lcom/gravixcloud/rtc/noise/GravixNsEngine;
+	public static final field Companion Lcom/gravixcloud/rtc/noise/GravixNsEngine$Companion;
+	public static final field DFN3 Lcom/gravixcloud/rtc/noise/GravixNsEngine;
+	public static final field NONE Lcom/gravixcloud/rtc/noise/GravixNsEngine;
+	public static final field RNNOISE Lcom/gravixcloud/rtc/noise/GravixNsEngine;
+	public static final fun fromWireName (Ljava/lang/String;)Lcom/gravixcloud/rtc/noise/GravixNsEngine;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWireName ()Ljava/lang/String;
+	public final fun isOurs ()Z
+	public static fun valueOf (Ljava/lang/String;)Lcom/gravixcloud/rtc/noise/GravixNsEngine;
+	public static fun values ()[Lcom/gravixcloud/rtc/noise/GravixNsEngine;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsEngine$Companion {
+	public final fun fromWireName (Ljava/lang/String;)Lcom/gravixcloud/rtc/noise/GravixNsEngine;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsLog {
+	public static final field INSTANCE Lcom/gravixcloud/rtc/noise/GravixNsLog;
+	public static final fun line (Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsEngine;)Ljava/lang/String;
+	public static final fun line (Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsEngine;Lcom/gravixcloud/rtc/noise/GravixNsRoute;)Ljava/lang/String;
+	public static final fun line (Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsEngine;Lcom/gravixcloud/rtc/noise/GravixNsRoute;Ljava/lang/Integer;)Ljava/lang/String;
+	public static final fun line (Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsEngine;Lcom/gravixcloud/rtc/noise/GravixNsRoute;Ljava/lang/Integer;Ljava/lang/Long;)Ljava/lang/String;
+	public static final fun line (Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsEngine;Lcom/gravixcloud/rtc/noise/GravixNsRoute;Ljava/lang/Integer;Ljava/lang/Long;Ljava/lang/String;)Ljava/lang/String;
+	public static synthetic fun line$default (Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsEngine;Lcom/gravixcloud/rtc/noise/GravixNsRoute;Ljava/lang/Integer;Ljava/lang/Long;Ljava/lang/String;ILjava/lang/Object;)Ljava/lang/String;
+	public static final fun summaryDetail (IIIII)Ljava/lang/String;
+	public static final fun summaryDetail (IIIIILjava/lang/Double;)Ljava/lang/String;
+	public static synthetic fun summaryDetail$default (IIIIILjava/lang/Double;ILjava/lang/Object;)Ljava/lang/String;
+	public static final fun switchDetail (Lcom/gravixcloud/rtc/noise/GravixNsEngine;Lcom/gravixcloud/rtc/noise/GravixNsEngine;Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsPolicy {
+	public static final field Companion Lcom/gravixcloud/rtc/noise/GravixNsPolicy$Companion;
+	public static final field EMPTY Lcom/gravixcloud/rtc/noise/GravixNsPolicy;
+	public static final field VERSION I
+	public fun <init> ()V
+	public fun <init> (IZZLjava/util/List;Ljava/util/List;Ljava/util/List;Lcom/gravixcloud/rtc/noise/GravixNsThresholds;)V
+	public synthetic fun <init> (IZZLjava/util/List;Ljava/util/List;Ljava/util/List;Lcom/gravixcloud/rtc/noise/GravixNsThresholds;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun compareVersions (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Integer;
+	public final fun component1 ()I
+	public final fun component2 ()Z
+	public final fun component3 ()Z
+	public final fun component4 ()Ljava/util/List;
+	public final fun component5 ()Ljava/util/List;
+	public final fun component6 ()Ljava/util/List;
+	public final fun component7 ()Lcom/gravixcloud/rtc/noise/GravixNsThresholds;
+	public final fun copy (IZZLjava/util/List;Ljava/util/List;Ljava/util/List;Lcom/gravixcloud/rtc/noise/GravixNsThresholds;)Lcom/gravixcloud/rtc/noise/GravixNsPolicy;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/noise/GravixNsPolicy;IZZLjava/util/List;Ljava/util/List;Ljava/util/List;Lcom/gravixcloud/rtc/noise/GravixNsThresholds;ILjava/lang/Object;)Lcom/gravixcloud/rtc/noise/GravixNsPolicy;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getKillAll ()Z
+	public final fun getKillStudio ()Z
+	public final fun getStandardDeny ()Ljava/util/List;
+	public final fun getStudioAllow ()Ljava/util/List;
+	public final fun getStudioDeny ()Ljava/util/List;
+	public final fun getThresholds ()Lcom/gravixcloud/rtc/noise/GravixNsThresholds;
+	public final fun getVersion ()I
+	public fun hashCode ()I
+	public static final fun parse (Ljava/lang/Object;)Lcom/gravixcloud/rtc/noise/GravixNsPolicyParse;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsPolicy$Companion {
+	public final fun compareVersions (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Integer;
+	public final fun parse (Ljava/lang/Object;)Lcom/gravixcloud/rtc/noise/GravixNsPolicyParse;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsPolicyParse {
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNsPolicy;Ljava/lang/String;I)V
+	public final fun component1 ()Lcom/gravixcloud/rtc/noise/GravixNsPolicy;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()I
+	public final fun copy (Lcom/gravixcloud/rtc/noise/GravixNsPolicy;Ljava/lang/String;I)Lcom/gravixcloud/rtc/noise/GravixNsPolicyParse;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/noise/GravixNsPolicyParse;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;Ljava/lang/String;IILjava/lang/Object;)Lcom/gravixcloud/rtc/noise/GravixNsPolicyParse;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getError ()Ljava/lang/String;
+	public final fun getPolicy ()Lcom/gravixcloud/rtc/noise/GravixNsPolicy;
+	public final fun getSkippedRules ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsReason {
+	public static final field AUTO_CAPABLE Ljava/lang/String;
+	public static final field BATTERY_SAVER Ljava/lang/String;
+	public static final field BENCHMARK_BAD_OUTPUT Ljava/lang/String;
+	public static final field BENCHMARK_PENDING Ljava/lang/String;
+	public static final field BENCHMARK_SLOW Ljava/lang/String;
+	public static final field HEADSET_NS Ljava/lang/String;
+	public static final field INSTANCE Lcom/gravixcloud/rtc/noise/GravixNsReason;
+	public static final field KILL_SWITCH Ljava/lang/String;
+	public static final field KILL_SWITCH_STUDIO Ljava/lang/String;
+	public static final field MODE_OFF Ljava/lang/String;
+	public static final field MODE_STANDARD Ljava/lang/String;
+	public static final field MODE_STUDIO Ljava/lang/String;
+	public static final field NARROWBAND_ROUTE Ljava/lang/String;
+	public static final field NATIVE_UNAVAILABLE Ljava/lang/String;
+	public static final field NO_AUDIO_WORKLET Ljava/lang/String;
+	public static final field PLATFORM_UNSUPPORTED Ljava/lang/String;
+	public static final field POLICY_DENY_STANDARD Ljava/lang/String;
+	public static final field POLICY_DENY_STUDIO Ljava/lang/String;
+	public static final field STATIC_ABI Ljava/lang/String;
+	public static final field STATIC_FEW_CORES Ljava/lang/String;
+	public static final field STATIC_LOW_MEMORY Ljava/lang/String;
+	public static final field STATIC_LOW_RAM Ljava/lang/String;
+	public static final field STATIC_LOW_RAM_DEVICE Ljava/lang/String;
+	public static final field STATIC_NO_SIMD Ljava/lang/String;
+	public static final field STATIC_OLD_CHIP Ljava/lang/String;
+	public static final field STATIC_PLATFORM Ljava/lang/String;
+	public static final field STATIC_SLOW_CPU Ljava/lang/String;
+	public static final field STUDIO_SLOW Ljava/lang/String;
+	public static final field STUDIO_SUPPRESS Ljava/lang/String;
+	public static final field STUDIO_TOO_SLOW Ljava/lang/String;
+	public static final field STUDIO_UNAVAILABLE Ljava/lang/String;
+	public static final field THERMAL Ljava/lang/String;
+	public static final field WATCHDOG_FRAME Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsReport {
+	public fun <init> (Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;Lcom/gravixcloud/rtc/noise/GravixNsEngine;Ljava/lang/String;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsRoute;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Double;)V
+	public synthetic fun <init> (Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;Lcom/gravixcloud/rtc/noise/GravixNsEngine;Ljava/lang/String;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsRoute;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Double;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ljava/lang/Integer;
+	public final fun component11 ()Ljava/lang/Integer;
+	public final fun component12 ()Ljava/lang/Integer;
+	public final fun component13 ()Ljava/lang/Integer;
+	public final fun component14 ()Ljava/lang/Boolean;
+	public final fun component15 ()Ljava/lang/Boolean;
+	public final fun component16 ()Ljava/lang/Double;
+	public final fun component2 ()Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;
+	public final fun component3 ()Lcom/gravixcloud/rtc/noise/GravixNsEngine;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Lcom/gravixcloud/rtc/noise/GravixNsRoute;
+	public final fun component7 ()Ljava/lang/Integer;
+	public final fun component8 ()Ljava/lang/Integer;
+	public final fun component9 ()Ljava/lang/Integer;
+	public final fun copy (Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;Lcom/gravixcloud/rtc/noise/GravixNsEngine;Ljava/lang/String;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsRoute;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Double;)Lcom/gravixcloud/rtc/noise/GravixNsReport;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/noise/GravixNsReport;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;Lcom/gravixcloud/rtc/noise/GravixNsEngine;Ljava/lang/String;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsRoute;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Double;ILjava/lang/Object;)Lcom/gravixcloud/rtc/noise/GravixNsReport;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApmRate ()Ljava/lang/Integer;
+	public final fun getBenchmarkCached ()Ljava/lang/Boolean;
+	public final fun getBenchmarkP95Us ()Ljava/lang/Integer;
+	public final fun getCpuPercent ()Ljava/lang/Double;
+	public final fun getEngine ()Lcom/gravixcloud/rtc/noise/GravixNsEngine;
+	public final fun getFramesOverBudget ()Ljava/lang/Integer;
+	public final fun getMaxUs ()Ljava/lang/Integer;
+	public final fun getMode ()Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;
+	public final fun getMusicBypass ()Ljava/lang/Boolean;
+	public final fun getP50Us ()Ljava/lang/Integer;
+	public final fun getP95Us ()Ljava/lang/Integer;
+	public final fun getP99Us ()Ljava/lang/Integer;
+	public final fun getPlatform ()Ljava/lang/String;
+	public final fun getReason ()Ljava/lang/String;
+	public final fun getRoute ()Lcom/gravixcloud/rtc/noise/GravixNsRoute;
+	public final fun getStep ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class com/gravixcloud/rtc/noise/GravixNsReportListener {
+	public abstract fun onReport (Lcom/gravixcloud/rtc/noise/GravixNsReport;)V
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsResolution {
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNsEngine;Ljava/lang/String;ZZ)V
+	public synthetic fun <init> (Lcom/gravixcloud/rtc/noise/GravixNsEngine;Ljava/lang/String;ZZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lcom/gravixcloud/rtc/noise/GravixNsEngine;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Z
+	public final fun component4 ()Z
+	public final fun copy (Lcom/gravixcloud/rtc/noise/GravixNsEngine;Ljava/lang/String;ZZ)Lcom/gravixcloud/rtc/noise/GravixNsResolution;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/noise/GravixNsResolution;Lcom/gravixcloud/rtc/noise/GravixNsEngine;Ljava/lang/String;ZZILjava/lang/Object;)Lcom/gravixcloud/rtc/noise/GravixNsResolution;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEngine ()Lcom/gravixcloud/rtc/noise/GravixNsEngine;
+	public final fun getNeedsBenchmark ()Z
+	public final fun getReason ()Ljava/lang/String;
+	public final fun getStudioEligible ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsResolver {
+	public static final field INSTANCE Lcom/gravixcloud/rtc/noise/GravixNsResolver;
+	public static final fun benchmarkKey (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+	public static final fun iosChipFromModel (Ljava/lang/String;)Ljava/lang/Integer;
+	public static final fun resolve (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;Lcom/gravixcloud/rtc/noise/GravixNsDeviceFacts;)Lcom/gravixcloud/rtc/noise/GravixNsResolution;
+	public static final fun resolve (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;Lcom/gravixcloud/rtc/noise/GravixNsDeviceFacts;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;)Lcom/gravixcloud/rtc/noise/GravixNsResolution;
+	public static final fun resolve (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;Lcom/gravixcloud/rtc/noise/GravixNsDeviceFacts;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;Lcom/gravixcloud/rtc/noise/GravixNsBenchmark;)Lcom/gravixcloud/rtc/noise/GravixNsResolution;
+	public static final fun resolve (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;Lcom/gravixcloud/rtc/noise/GravixNsDeviceFacts;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;Lcom/gravixcloud/rtc/noise/GravixNsBenchmark;Ljava/lang/String;)Lcom/gravixcloud/rtc/noise/GravixNsResolution;
+	public static final fun resolve (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;Lcom/gravixcloud/rtc/noise/GravixNsDeviceFacts;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;Lcom/gravixcloud/rtc/noise/GravixNsBenchmark;Ljava/lang/String;Z)Lcom/gravixcloud/rtc/noise/GravixNsResolution;
+	public static final fun resolve (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;Lcom/gravixcloud/rtc/noise/GravixNsDeviceFacts;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;Lcom/gravixcloud/rtc/noise/GravixNsBenchmark;Ljava/lang/String;ZI)Lcom/gravixcloud/rtc/noise/GravixNsResolution;
+	public static synthetic fun resolve$default (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;Lcom/gravixcloud/rtc/noise/GravixNsDeviceFacts;Lcom/gravixcloud/rtc/noise/GravixNsPolicy;Lcom/gravixcloud/rtc/noise/GravixNsBenchmark;Ljava/lang/String;ZIILjava/lang/Object;)Lcom/gravixcloud/rtc/noise/GravixNsResolution;
+	public static final fun staticCheck (Lcom/gravixcloud/rtc/noise/GravixNsDeviceFacts;Lcom/gravixcloud/rtc/noise/GravixNsThresholds;)Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsRoute : java/lang/Enum {
+	public static final field BT_A2DP Lcom/gravixcloud/rtc/noise/GravixNsRoute;
+	public static final field BT_LE Lcom/gravixcloud/rtc/noise/GravixNsRoute;
+	public static final field BT_SCO Lcom/gravixcloud/rtc/noise/GravixNsRoute;
+	public static final field Companion Lcom/gravixcloud/rtc/noise/GravixNsRoute$Companion;
+	public static final field EARPIECE Lcom/gravixcloud/rtc/noise/GravixNsRoute;
+	public static final field SPEAKER Lcom/gravixcloud/rtc/noise/GravixNsRoute;
+	public static final field UNKNOWN Lcom/gravixcloud/rtc/noise/GravixNsRoute;
+	public static final field USB Lcom/gravixcloud/rtc/noise/GravixNsRoute;
+	public static final field WIRED Lcom/gravixcloud/rtc/noise/GravixNsRoute;
+	public static final fun fromWireName (Ljava/lang/String;)Lcom/gravixcloud/rtc/noise/GravixNsRoute;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWireName ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Lcom/gravixcloud/rtc/noise/GravixNsRoute;
+	public static fun values ()[Lcom/gravixcloud/rtc/noise/GravixNsRoute;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsRoute$Companion {
+	public final fun fromWireName (Ljava/lang/String;)Lcom/gravixcloud/rtc/noise/GravixNsRoute;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsRule {
+	public static final field Companion Lcom/gravixcloud/rtc/noise/GravixNsRule$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lcom/gravixcloud/rtc/noise/GravixNsRule;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/noise/GravixNsRule;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lcom/gravixcloud/rtc/noise/GravixNsRule;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getManufacturer ()Ljava/lang/String;
+	public final fun getModel ()Ljava/lang/String;
+	public final fun getOsMax ()Ljava/lang/String;
+	public final fun getOsMin ()Ljava/lang/String;
+	public final fun getPlatform ()Ljava/lang/String;
+	public final fun getSoc ()Ljava/lang/String;
+	public final fun getUaRegex ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun matches (Ljava/lang/String;)Z
+	public final fun matches (Ljava/lang/String;Ljava/lang/String;)Z
+	public final fun matches (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z
+	public final fun matches (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z
+	public final fun matches (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z
+	public final fun matches (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z
+	public static synthetic fun matches$default (Lcom/gravixcloud/rtc/noise/GravixNsRule;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsRule$Companion {
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsState {
+	public fun <init> ()V
+	public fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;Lcom/gravixcloud/rtc/noise/GravixNsEngine;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsRoute;Ljava/lang/Integer;ZZLjava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;)V
+	public synthetic fun <init> (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;Lcom/gravixcloud/rtc/noise/GravixNsEngine;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsRoute;Ljava/lang/Integer;ZZLjava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;
+	public final fun component10 ()Ljava/lang/Integer;
+	public final fun component2 ()Lcom/gravixcloud/rtc/noise/GravixNsEngine;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Lcom/gravixcloud/rtc/noise/GravixNsRoute;
+	public final fun component5 ()Ljava/lang/Integer;
+	public final fun component6 ()Z
+	public final fun component7 ()Z
+	public final fun component8 ()Ljava/lang/Integer;
+	public final fun component9 ()Ljava/lang/Integer;
+	public final fun copy (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;Lcom/gravixcloud/rtc/noise/GravixNsEngine;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsRoute;Ljava/lang/Integer;ZZLjava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;)Lcom/gravixcloud/rtc/noise/GravixNsState;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/noise/GravixNsState;Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;Lcom/gravixcloud/rtc/noise/GravixNsEngine;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsRoute;Ljava/lang/Integer;ZZLjava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;ILjava/lang/Object;)Lcom/gravixcloud/rtc/noise/GravixNsState;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEngine ()Lcom/gravixcloud/rtc/noise/GravixNsEngine;
+	public final fun getInstalled ()Z
+	public final fun getMode ()Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionMode;
+	public final fun getMusicBypass ()Z
+	public final fun getOverBudget ()Ljava/lang/Integer;
+	public final fun getP50Us ()Ljava/lang/Integer;
+	public final fun getP95Us ()Ljava/lang/Integer;
+	public final fun getRate ()Ljava/lang/Integer;
+	public final fun getReason ()Ljava/lang/String;
+	public final fun getRoute ()Lcom/gravixcloud/rtc/noise/GravixNsRoute;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsStats {
+	public fun <init> (IIIIIIIILcom/gravixcloud/rtc/noise/GravixNsEngine;Lcom/gravixcloud/rtc/noise/GravixNsEngine;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsRoute;IIDZZLjava/lang/String;Ljava/lang/String;DDDD)V
+	public synthetic fun <init> (IIIIIIIILcom/gravixcloud/rtc/noise/GravixNsEngine;Lcom/gravixcloud/rtc/noise/GravixNsEngine;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsRoute;IIDZZLjava/lang/String;Ljava/lang/String;DDDDILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component10 ()Lcom/gravixcloud/rtc/noise/GravixNsEngine;
+	public final fun component11 ()Ljava/lang/String;
+	public final fun component12 ()Lcom/gravixcloud/rtc/noise/GravixNsRoute;
+	public final fun component13 ()I
+	public final fun component14 ()I
+	public final fun component15 ()D
+	public final fun component16 ()Z
+	public final fun component17 ()Z
+	public final fun component18 ()Ljava/lang/String;
+	public final fun component19 ()Ljava/lang/String;
+	public final fun component2 ()I
+	public final fun component20 ()D
+	public final fun component21 ()D
+	public final fun component22 ()D
+	public final fun component23 ()D
+	public final fun component3 ()I
+	public final fun component4 ()I
+	public final fun component5 ()I
+	public final fun component6 ()I
+	public final fun component7 ()I
+	public final fun component8 ()I
+	public final fun component9 ()Lcom/gravixcloud/rtc/noise/GravixNsEngine;
+	public final fun copy (IIIIIIIILcom/gravixcloud/rtc/noise/GravixNsEngine;Lcom/gravixcloud/rtc/noise/GravixNsEngine;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsRoute;IIDZZLjava/lang/String;Ljava/lang/String;DDDD)Lcom/gravixcloud/rtc/noise/GravixNsStats;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/noise/GravixNsStats;IIIIIIIILcom/gravixcloud/rtc/noise/GravixNsEngine;Lcom/gravixcloud/rtc/noise/GravixNsEngine;Ljava/lang/String;Lcom/gravixcloud/rtc/noise/GravixNsRoute;IIDZZLjava/lang/String;Ljava/lang/String;DDDDILjava/lang/Object;)Lcom/gravixcloud/rtc/noise/GravixNsStats;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAgcAppliedDb ()D
+	public final fun getAgcGainDb ()D
+	public final fun getEngine ()Lcom/gravixcloud/rtc/noise/GravixNsEngine;
+	public final fun getFrames ()I
+	public final fun getInstalled ()Z
+	public final fun getLatencySamples ()I
+	public final fun getMaxUs ()I
+	public final fun getMusicBypass ()Z
+	public final fun getOverBudget ()I
+	public final fun getP50Us ()I
+	public final fun getP95Us ()I
+	public final fun getP99Us ()I
+	public final fun getPauseAttDb ()D
+	public final fun getPreGainAppliedDb ()D
+	public final fun getPreGainDb ()D
+	public final fun getRate ()I
+	public final fun getReason ()Ljava/lang/String;
+	public final fun getRequested ()Lcom/gravixcloud/rtc/noise/GravixNsEngine;
+	public final fun getRoute ()Lcom/gravixcloud/rtc/noise/GravixNsRoute;
+	public final fun getShapeReject ()Ljava/lang/String;
+	public final fun getStudioModel ()Ljava/lang/String;
+	public final fun getSwitches ()I
+	public final fun getUnderflows ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsStep {
+	public static final field BENCH Ljava/lang/String;
+	public static final field INIT Ljava/lang/String;
+	public static final field INSTALL Ljava/lang/String;
+	public static final field INSTANCE Lcom/gravixcloud/rtc/noise/GravixNsStep;
+	public static final field MUSIC_BYPASS Ljava/lang/String;
+	public static final field PACK Ljava/lang/String;
+	public static final field POLICY Ljava/lang/String;
+	public static final field ROUTE_RESET Ljava/lang/String;
+	public static final field STATIC Ljava/lang/String;
+	public static final field STATS Ljava/lang/String;
+	public static final field SUMMARY Ljava/lang/String;
+	public static final field SWITCH Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsThresholds {
+	public static final field Companion Lcom/gravixcloud/rtc/noise/GravixNsThresholds$Companion;
+	public static final field DEFAULTS Lcom/gravixcloud/rtc/noise/GravixNsThresholds;
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Double;)V
+	public synthetic fun <init> (Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Double;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/Integer;
+	public final fun component2 ()Ljava/lang/Integer;
+	public final fun component3 ()Ljava/lang/Integer;
+	public final fun component4 ()Ljava/lang/Integer;
+	public final fun component5 ()Ljava/lang/Integer;
+	public final fun component6 ()Ljava/lang/Integer;
+	public final fun component7 ()Ljava/lang/Double;
+	public final fun copy (Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Double;)Lcom/gravixcloud/rtc/noise/GravixNsThresholds;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/noise/GravixNsThresholds;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Double;ILjava/lang/Object;)Lcom/gravixcloud/rtc/noise/GravixNsThresholds;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBenchmarkP95Us ()Ljava/lang/Integer;
+	public final fun getMinCores ()Ljava/lang/Integer;
+	public final fun getMinCpuMaxFreqMhz ()Ljava/lang/Integer;
+	public final fun getMinDeviceMemoryGb ()Ljava/lang/Double;
+	public final fun getMinIosChip ()Ljava/lang/Integer;
+	public final fun getMinPerformanceClass ()Ljava/lang/Integer;
+	public final fun getMinRamMb ()Ljava/lang/Integer;
+	public fun hashCode ()I
+	public final fun merge (Lcom/gravixcloud/rtc/noise/GravixNsThresholds;)Lcom/gravixcloud/rtc/noise/GravixNsThresholds;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixNsThresholds$Companion {
+}
+
+public final class com/gravixcloud/rtc/noise/GravixStudioDownload : java/lang/Enum {
+	public static final field ANY Lcom/gravixcloud/rtc/noise/GravixStudioDownload;
+	public static final field NEVER Lcom/gravixcloud/rtc/noise/GravixStudioDownload;
+	public static final field UNMETERED_IDLE Lcom/gravixcloud/rtc/noise/GravixStudioDownload;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWireName ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Lcom/gravixcloud/rtc/noise/GravixStudioDownload;
+	public static fun values ()[Lcom/gravixcloud/rtc/noise/GravixStudioDownload;
+}
+
+public final class com/gravixcloud/rtc/noise/GravixStudioSource : java/lang/Enum {
+	public static final field APP Lcom/gravixcloud/rtc/noise/GravixStudioSource;
+	public static final field AUTO Lcom/gravixcloud/rtc/noise/GravixStudioSource;
+	public static final field CDN Lcom/gravixcloud/rtc/noise/GravixStudioSource;
+	public static final field PLAY_ASSET_PACK Lcom/gravixcloud/rtc/noise/GravixStudioSource;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWireName ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Lcom/gravixcloud/rtc/noise/GravixStudioSource;
+	public static fun values ()[Lcom/gravixcloud/rtc/noise/GravixStudioSource;
+}
+
 public abstract interface class com/gravixcloud/rtc/regions/GravixClock {
 	public static final field Companion Lcom/gravixcloud/rtc/regions/GravixClock$Companion;
 	public static final field SYSTEM Lcom/gravixcloud/rtc/regions/GravixClock;
@@ -2158,6 +2784,8 @@ public final class com/gravixcloud/rtc/regions/GravixRegionFailoverOrder {
 	public static final fun nearOnlyCapMs (J)J
 	public static final fun normalizeUrl (Ljava/lang/String;)Ljava/lang/String;
 	public static final fun order (Ljava/util/List;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;)Ljava/util/List;
+	public static final fun order (Ljava/util/List;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)Ljava/util/List;
+	public static synthetic fun order$default (Ljava/util/List;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;ILjava/lang/Object;)Ljava/util/List;
 	public static final fun regionOfUrl (Ljava/lang/String;)Ljava/lang/String;
 	public static final fun regionOfUrl (Ljava/lang/String;Ljava/lang/Iterable;)Ljava/lang/String;
 	public static final fun regionOfUrl (Ljava/lang/String;Ljava/lang/Iterable;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;)Ljava/lang/String;
@@ -2167,6 +2795,15 @@ public final class com/gravixcloud/rtc/regions/GravixRegionFailoverOrder {
 public abstract interface class com/gravixcloud/rtc/regions/GravixRegionListStore {
 	public abstract fun read (Ljava/lang/String;)Ljava/lang/String;
 	public abstract fun write (Ljava/lang/String;Ljava/lang/String;)V
+}
+
+public final class com/gravixcloud/rtc/regions/GravixRegionLog {
+	public static final field INSTANCE Lcom/gravixcloud/rtc/regions/GravixRegionLog;
+	public static final field PREFIX Ljava/lang/String;
+	public static final fun getLevel ()Lcom/gravixcloud/rtc/util/LoggingLevel;
+	public static final fun getSink ()Lcom/gravixcloud/rtc/util/GravixLogSink;
+	public static final fun setLevel (Lcom/gravixcloud/rtc/util/LoggingLevel;)V
+	public static final fun setSink (Lcom/gravixcloud/rtc/util/GravixLogSink;)V
 }
 
 public final class com/gravixcloud/rtc/regions/GravixRegionMeasureOptions {
@@ -2256,13 +2893,20 @@ public final class com/gravixcloud/rtc/regions/GravixRegionMeasurementResult {
 	public fun <init> (JLjava/util/List;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurement;Ljava/lang/String;Ljava/lang/Long;Lcom/gravixcloud/rtc/regions/GravixRegionBestSource;Lcom/gravixcloud/rtc/regions/GravixRegionPlanMode;Ljava/lang/Long;ZZLjava/lang/String;J)V
 	public fun <init> (JLjava/util/List;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurement;Ljava/lang/String;Ljava/lang/Long;Lcom/gravixcloud/rtc/regions/GravixRegionBestSource;Lcom/gravixcloud/rtc/regions/GravixRegionPlanMode;Ljava/lang/Long;ZZLjava/lang/String;JLcom/gravixcloud/rtc/regions/GravixRegionSelectReason;)V
 	public fun <init> (JLjava/util/List;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurement;Ljava/lang/String;Ljava/lang/Long;Lcom/gravixcloud/rtc/regions/GravixRegionBestSource;Lcom/gravixcloud/rtc/regions/GravixRegionPlanMode;Ljava/lang/Long;ZZLjava/lang/String;JLcom/gravixcloud/rtc/regions/GravixRegionSelectReason;Lcom/gravixcloud/rtc/regions/GravixRegionChallenger;)V
-	public synthetic fun <init> (JLjava/util/List;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurement;Ljava/lang/String;Ljava/lang/Long;Lcom/gravixcloud/rtc/regions/GravixRegionBestSource;Lcom/gravixcloud/rtc/regions/GravixRegionPlanMode;Ljava/lang/Long;ZZLjava/lang/String;JLcom/gravixcloud/rtc/regions/GravixRegionSelectReason;Lcom/gravixcloud/rtc/regions/GravixRegionChallenger;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (JLjava/util/List;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurement;Ljava/lang/String;Ljava/lang/Long;Lcom/gravixcloud/rtc/regions/GravixRegionBestSource;Lcom/gravixcloud/rtc/regions/GravixRegionPlanMode;Ljava/lang/Long;ZZLjava/lang/String;JLcom/gravixcloud/rtc/regions/GravixRegionSelectReason;Lcom/gravixcloud/rtc/regions/GravixRegionChallenger;Ljava/util/Map;)V
+	public fun <init> (JLjava/util/List;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurement;Ljava/lang/String;Ljava/lang/Long;Lcom/gravixcloud/rtc/regions/GravixRegionBestSource;Lcom/gravixcloud/rtc/regions/GravixRegionPlanMode;Ljava/lang/Long;ZZLjava/lang/String;JLcom/gravixcloud/rtc/regions/GravixRegionSelectReason;Lcom/gravixcloud/rtc/regions/GravixRegionChallenger;Ljava/util/Map;Ljava/util/Map;)V
+	public fun <init> (JLjava/util/List;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurement;Ljava/lang/String;Ljava/lang/Long;Lcom/gravixcloud/rtc/regions/GravixRegionBestSource;Lcom/gravixcloud/rtc/regions/GravixRegionPlanMode;Ljava/lang/Long;ZZLjava/lang/String;JLcom/gravixcloud/rtc/regions/GravixRegionSelectReason;Lcom/gravixcloud/rtc/regions/GravixRegionChallenger;Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;)V
+	public synthetic fun <init> (JLjava/util/List;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurement;Ljava/lang/String;Ljava/lang/Long;Lcom/gravixcloud/rtc/regions/GravixRegionBestSource;Lcom/gravixcloud/rtc/regions/GravixRegionPlanMode;Ljava/lang/Long;ZZLjava/lang/String;JLcom/gravixcloud/rtc/regions/GravixRegionSelectReason;Lcom/gravixcloud/rtc/regions/GravixRegionChallenger;Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun bestFor (Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)Lcom/gravixcloud/rtc/regions/GravixRegionMeasurement;
 	public final fun component1 ()J
 	public final fun component10 ()Z
 	public final fun component11 ()Ljava/lang/String;
 	public final fun component12 ()J
 	public final fun component13 ()Lcom/gravixcloud/rtc/regions/GravixRegionSelectReason;
 	public final fun component14 ()Lcom/gravixcloud/rtc/regions/GravixRegionChallenger;
+	public final fun component15 ()Ljava/util/Map;
+	public final fun component16 ()Ljava/util/Map;
+	public final fun component17 ()Ljava/util/Map;
 	public final fun component2 ()Ljava/util/List;
 	public final fun component3 ()Lcom/gravixcloud/rtc/regions/GravixRegionMeasurement;
 	public final fun component4 ()Ljava/lang/String;
@@ -2271,10 +2915,11 @@ public final class com/gravixcloud/rtc/regions/GravixRegionMeasurementResult {
 	public final fun component7 ()Lcom/gravixcloud/rtc/regions/GravixRegionPlanMode;
 	public final fun component8 ()Ljava/lang/Long;
 	public final fun component9 ()Z
-	public final fun copy (JLjava/util/List;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurement;Ljava/lang/String;Ljava/lang/Long;Lcom/gravixcloud/rtc/regions/GravixRegionBestSource;Lcom/gravixcloud/rtc/regions/GravixRegionPlanMode;Ljava/lang/Long;ZZLjava/lang/String;JLcom/gravixcloud/rtc/regions/GravixRegionSelectReason;Lcom/gravixcloud/rtc/regions/GravixRegionChallenger;)Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;
-	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;JLjava/util/List;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurement;Ljava/lang/String;Ljava/lang/Long;Lcom/gravixcloud/rtc/regions/GravixRegionBestSource;Lcom/gravixcloud/rtc/regions/GravixRegionPlanMode;Ljava/lang/Long;ZZLjava/lang/String;JLcom/gravixcloud/rtc/regions/GravixRegionSelectReason;Lcom/gravixcloud/rtc/regions/GravixRegionChallenger;ILjava/lang/Object;)Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;
+	public final fun copy (JLjava/util/List;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurement;Ljava/lang/String;Ljava/lang/Long;Lcom/gravixcloud/rtc/regions/GravixRegionBestSource;Lcom/gravixcloud/rtc/regions/GravixRegionPlanMode;Ljava/lang/Long;ZZLjava/lang/String;JLcom/gravixcloud/rtc/regions/GravixRegionSelectReason;Lcom/gravixcloud/rtc/regions/GravixRegionChallenger;Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;)Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;JLjava/util/List;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurement;Ljava/lang/String;Ljava/lang/Long;Lcom/gravixcloud/rtc/regions/GravixRegionBestSource;Lcom/gravixcloud/rtc/regions/GravixRegionPlanMode;Ljava/lang/Long;ZZLjava/lang/String;JLcom/gravixcloud/rtc/regions/GravixRegionSelectReason;Lcom/gravixcloud/rtc/regions/GravixRegionChallenger;Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;ILjava/lang/Object;)Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getBest ()Lcom/gravixcloud/rtc/regions/GravixRegionMeasurement;
+	public final fun getBestByMedia ()Ljava/util/Map;
 	public final fun getBestSource ()Lcom/gravixcloud/rtc/regions/GravixRegionBestSource;
 	public final fun getBudgetHit ()Z
 	public final fun getBudgetMs ()Ljava/lang/Long;
@@ -2283,6 +2928,8 @@ public final class com/gravixcloud/rtc/regions/GravixRegionMeasurementResult {
 	public final fun getElapsedMs ()Ljava/lang/Long;
 	public final fun getError ()Ljava/lang/String;
 	public final fun getMeasuredAtMs ()J
+	public final fun getMediaChallenger ()Ljava/util/Map;
+	public final fun getMediaSelectReason ()Ljava/util/Map;
 	public final fun getMode ()Lcom/gravixcloud/rtc/regions/GravixRegionPlanMode;
 	public final fun getNetworkKey ()Ljava/lang/String;
 	public final fun getRegions ()Ljava/util/List;
@@ -2324,16 +2971,48 @@ public final class com/gravixcloud/rtc/regions/GravixRegionMeasurements {
 	public static final fun pickRegion (Ljava/lang/String;Ljava/util/List;)Lcom/gravixcloud/rtc/regions/GravixRegionPick;
 	public static final fun pickRegion (Ljava/lang/String;Ljava/util/List;Ljava/lang/String;)Lcom/gravixcloud/rtc/regions/GravixRegionPick;
 	public static final fun pickRegion (Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;)Lcom/gravixcloud/rtc/regions/GravixRegionPick;
-	public static synthetic fun pickRegion$default (Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;ILjava/lang/Object;)Lcom/gravixcloud/rtc/regions/GravixRegionPick;
+	public static final fun pickRegion (Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)Lcom/gravixcloud/rtc/regions/GravixRegionPick;
+	public static synthetic fun pickRegion$default (Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;ILjava/lang/Object;)Lcom/gravixcloud/rtc/regions/GravixRegionPick;
 	public static final fun regionsMeasuredReport ()Ljava/lang/String;
 	public static final fun regionsMeasuredReport (Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;)Ljava/lang/String;
 	public static synthetic fun regionsMeasuredReport$default (Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;ILjava/lang/Object;)Ljava/lang/String;
 	public static final fun resolveConnectUrl (Ljava/lang/String;)Ljava/lang/String;
 	public static final fun resolveConnectUrl (Ljava/lang/String;Ljava/util/List;)Ljava/lang/String;
 	public static final fun resolveConnectUrl (Ljava/lang/String;Ljava/util/List;Ljava/lang/String;)Ljava/lang/String;
-	public static synthetic fun resolveConnectUrl$default (Ljava/lang/String;Ljava/util/List;Ljava/lang/String;ILjava/lang/Object;)Ljava/lang/String;
+	public static final fun resolveConnectUrl (Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)Ljava/lang/String;
+	public static synthetic fun resolveConnectUrl$default (Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;ILjava/lang/Object;)Ljava/lang/String;
 	public final fun setClock (Lcom/gravixcloud/rtc/regions/GravixClock;)V
 	public static final fun setCurrent (Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;)V
+}
+
+public final class com/gravixcloud/rtc/regions/GravixRegionMedia {
+	public static final field AUDIO Ljava/lang/String;
+	public static final field INSTANCE Lcom/gravixcloud/rtc/regions/GravixRegionMedia;
+	public static final field MEDIA_NOT_ALLOWED Ljava/lang/String;
+	public static final field REFUSAL_LIFE_MS J
+	public static final field VIDEO Ljava/lang/String;
+	public static final fun allows (Ljava/util/List;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)Z
+	public static final fun clear ()V
+	public static final fun hintFromToken (Ljava/lang/String;)Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
+	public static final fun isMediaNotAllowed (Ljava/lang/Object;)Z
+	public static final fun joinMedia ()Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
+	public static final fun joinMedia (Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
+	public static final fun joinMedia (Lcom/gravixcloud/rtc/regions/GravixRoomMedia;Z)Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
+	public static final fun joinMedia (Lcom/gravixcloud/rtc/regions/GravixRoomMedia;ZLjava/lang/String;)Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
+	public static synthetic fun joinMedia$default (Lcom/gravixcloud/rtc/regions/GravixRoomMedia;ZLjava/lang/String;ILjava/lang/Object;)Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
+	public static final fun lastDirectory ()Ljava/util/List;
+	public static final fun lastShortlist ()Ljava/util/List;
+	public static final fun mediaOf (Ljava/lang/String;)Ljava/util/List;
+	public static final fun noteDirectory (Ljava/util/List;)V
+	public static final fun noteDirectory (Ljava/util/List;Ljava/util/List;)V
+	public static synthetic fun noteDirectory$default (Ljava/util/List;Ljava/util/List;ILjava/lang/Object;)V
+	public static final fun noteRefused (Ljava/lang/String;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)V
+	public static final fun promote (Lcom/gravixcloud/rtc/regions/GravixRoomMedia;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
+	public static final fun regionAllows (Lcom/gravixcloud/rtc/regions/GravixRegionUrl;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)Z
+	public static final fun skipWhy (Lcom/gravixcloud/rtc/regions/GravixRegionUrl;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)Ljava/lang/String;
+	public static final fun urlAllows (Ljava/lang/String;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)Z
+	public static final fun urlAllows (Ljava/lang/String;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;Ljava/util/List;)Z
+	public static synthetic fun urlAllows$default (Ljava/lang/String;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;Ljava/util/List;ILjava/lang/Object;)Z
 }
 
 public final class com/gravixcloud/rtc/regions/GravixRegionNetwork {
@@ -2344,18 +3023,29 @@ public final class com/gravixcloud/rtc/regions/GravixRegionNetwork {
 
 public final class com/gravixcloud/rtc/regions/GravixRegionPick {
 	public fun <init> (Lcom/gravixcloud/rtc/regions/GravixRegionUrl;Lcom/gravixcloud/rtc/regions/GravixRegionPickReason;)V
+	public fun <init> (Lcom/gravixcloud/rtc/regions/GravixRegionUrl;Lcom/gravixcloud/rtc/regions/GravixRegionPickReason;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)V
+	public fun <init> (Lcom/gravixcloud/rtc/regions/GravixRegionUrl;Lcom/gravixcloud/rtc/regions/GravixRegionPickReason;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;Ljava/util/List;)V
+	public fun <init> (Lcom/gravixcloud/rtc/regions/GravixRegionUrl;Lcom/gravixcloud/rtc/regions/GravixRegionPickReason;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;Ljava/util/List;Z)V
+	public synthetic fun <init> (Lcom/gravixcloud/rtc/regions/GravixRegionUrl;Lcom/gravixcloud/rtc/regions/GravixRegionPickReason;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;Ljava/util/List;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Lcom/gravixcloud/rtc/regions/GravixRegionUrl;
 	public final fun component2 ()Lcom/gravixcloud/rtc/regions/GravixRegionPickReason;
-	public final fun copy (Lcom/gravixcloud/rtc/regions/GravixRegionUrl;Lcom/gravixcloud/rtc/regions/GravixRegionPickReason;)Lcom/gravixcloud/rtc/regions/GravixRegionPick;
-	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/regions/GravixRegionPick;Lcom/gravixcloud/rtc/regions/GravixRegionUrl;Lcom/gravixcloud/rtc/regions/GravixRegionPickReason;ILjava/lang/Object;)Lcom/gravixcloud/rtc/regions/GravixRegionPick;
+	public final fun component3 ()Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
+	public final fun component4 ()Ljava/util/List;
+	public final fun component5 ()Z
+	public final fun copy (Lcom/gravixcloud/rtc/regions/GravixRegionUrl;Lcom/gravixcloud/rtc/regions/GravixRegionPickReason;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;Ljava/util/List;Z)Lcom/gravixcloud/rtc/regions/GravixRegionPick;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/regions/GravixRegionPick;Lcom/gravixcloud/rtc/regions/GravixRegionUrl;Lcom/gravixcloud/rtc/regions/GravixRegionPickReason;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;Ljava/util/List;ZILjava/lang/Object;)Lcom/gravixcloud/rtc/regions/GravixRegionPick;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getEntry ()Lcom/gravixcloud/rtc/regions/GravixRegionUrl;
+	public final fun getMedia ()Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
+	public final fun getMediaIgnored ()Z
 	public final fun getReason ()Lcom/gravixcloud/rtc/regions/GravixRegionPickReason;
+	public final fun getSkipped ()Ljava/util/List;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
 
 public final class com/gravixcloud/rtc/regions/GravixRegionPickReason : java/lang/Enum {
+	public static final field FALLBACK Lcom/gravixcloud/rtc/regions/GravixRegionPickReason;
 	public static final field HOME Lcom/gravixcloud/rtc/regions/GravixRegionPickReason;
 	public static final field MEASURED Lcom/gravixcloud/rtc/regions/GravixRegionPickReason;
 	public static final field PINNED Lcom/gravixcloud/rtc/regions/GravixRegionPickReason;
@@ -2512,6 +3202,8 @@ public final class com/gravixcloud/rtc/regions/GravixRegionSelector {
 public final class com/gravixcloud/rtc/regions/GravixRegionShortlist {
 	public static final field INSTANCE Lcom/gravixcloud/rtc/regions/GravixRegionShortlist;
 	public static final fun fallbackRegion (Lcom/gravixcloud/rtc/regions/GravixRegionDirectory;)Lcom/gravixcloud/rtc/regions/GravixPlannedCandidate;
+	public static final fun fallbackRegion (Lcom/gravixcloud/rtc/regions/GravixRegionDirectory;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)Lcom/gravixcloud/rtc/regions/GravixPlannedCandidate;
+	public static synthetic fun fallbackRegion$default (Lcom/gravixcloud/rtc/regions/GravixRegionDirectory;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;ILjava/lang/Object;)Lcom/gravixcloud/rtc/regions/GravixPlannedCandidate;
 	public static final fun hashNetworkId (Ljava/lang/String;)Ljava/lang/String;
 	public static final fun networkKey (Ljava/lang/String;)Ljava/lang/String;
 	public static final fun networkKey (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
@@ -2531,15 +3223,18 @@ public final class com/gravixcloud/rtc/regions/GravixRegionUrl {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Double;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Double;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Double;Ljava/util/List;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Double;Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component2 ()Ljava/lang/String;
 	public final fun component3 ()Ljava/lang/String;
 	public final fun component4 ()Ljava/lang/Double;
-	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Double;)Lcom/gravixcloud/rtc/regions/GravixRegionUrl;
-	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/regions/GravixRegionUrl;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Double;ILjava/lang/Object;)Lcom/gravixcloud/rtc/regions/GravixRegionUrl;
+	public final fun component5 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Double;Ljava/util/List;)Lcom/gravixcloud/rtc/regions/GravixRegionUrl;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/regions/GravixRegionUrl;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Double;Ljava/util/List;ILjava/lang/Object;)Lcom/gravixcloud/rtc/regions/GravixRegionUrl;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getEstRttMs ()Ljava/lang/Double;
+	public final fun getMedia ()Ljava/util/List;
 	public final fun getProbeUrl ()Ljava/lang/String;
 	public final fun getRegion ()Ljava/lang/String;
 	public final fun getUrl ()Ljava/lang/String;
@@ -2558,6 +3253,21 @@ public final class com/gravixcloud/rtc/regions/GravixRegions {
 	public static final fun startMeasurement (Landroid/content/Context;Lcom/gravixcloud/rtc/regions/GravixRegionMeasureOptions;JZ)Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementHandle;
 	public static final fun startMeasurement (Landroid/content/Context;Lcom/gravixcloud/rtc/regions/GravixRegionMeasureOptions;JZLkotlin/jvm/functions/Function0;)Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementHandle;
 	public static synthetic fun startMeasurement$default (Landroid/content/Context;Lcom/gravixcloud/rtc/regions/GravixRegionMeasureOptions;JZLkotlin/jvm/functions/Function0;ILjava/lang/Object;)Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementHandle;
+}
+
+public final class com/gravixcloud/rtc/regions/GravixRoomMedia : java/lang/Enum {
+	public static final field AUDIO Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
+	public static final field Companion Lcom/gravixcloud/rtc/regions/GravixRoomMedia$Companion;
+	public static final field VIDEO Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
+	public static final fun fromWireName (Ljava/lang/String;)Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWireName ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
+	public static fun values ()[Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
+}
+
+public final class com/gravixcloud/rtc/regions/GravixRoomMedia$Companion {
+	public final fun fromWireName (Ljava/lang/String;)Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
 }
 
 public final class com/gravixcloud/rtc/regions/GravixSharedPrefsRegionListStore : com/gravixcloud/rtc/regions/GravixRegionListStore {
@@ -2741,6 +3451,7 @@ public final class com/gravixcloud/rtc/room/RTCEngine : com/gravixcloud/rtc/room
 	public fun onClose (Ljava/lang/String;I)V
 	public fun onConnectionQuality (Ljava/util/List;)V
 	public fun onError (Ljava/lang/Throwable;)V
+	public fun onGravixRequestResponse (Ljava/lang/String;)V
 	public fun onLeave (Lgravixcloud/GravixcloudRtc$LeaveRequest;)V
 	public fun onLocalTrackPublished (Lgravixcloud/GravixcloudRtc$TrackPublishedResponse;)V
 	public fun onLocalTrackSubscribed (Lgravixcloud/GravixcloudRtc$TrackSubscribed;)V
@@ -2910,12 +3621,15 @@ public final class com/gravixcloud/rtc/room/Room : com/gravixcloud/rtc/room/RTCE
 	public final fun getE2eeOptions ()Lcom/gravixcloud/rtc/e2ee/E2EEOptions;
 	public final fun getEnableMetrics ()Z
 	public final fun getEvents ()Lcom/gravixcloud/rtc/events/EventListenable;
+	public final fun getForegroundService ()Lcom/gravixcloud/rtc/service/GravixForegroundServiceOptions;
+	public final fun getGravixJoinMedia ()Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
 	public final fun getGravixRecovery ()Lcom/gravixcloud/rtc/GravixRecoveryOptions;
 	public final fun getGravixRegionHints ()Ljava/util/List;
 	public final fun getGxObjects ()Lcom/gravixcloud/rtc/room/provisions/GxObjects;
 	public final fun getLocalParticipant ()Lcom/gravixcloud/rtc/room/participant/LocalParticipant;
 	public final fun getMetadata ()Ljava/lang/String;
 	public final fun getName ()Ljava/lang/String;
+	public final fun getNoiseSuppression ()Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions;
 	public final fun getParticipantByIdentity (Ljava/lang/String;)Lcom/gravixcloud/rtc/room/participant/Participant;
 	public final fun getParticipantByIdentity-9q1ATmE (Ljava/lang/String;)Lcom/gravixcloud/rtc/room/participant/Participant;
 	public final fun getParticipantBySid (Ljava/lang/String;)Lcom/gravixcloud/rtc/room/participant/Participant;
@@ -2935,6 +3649,7 @@ public final class com/gravixcloud/rtc/room/Room : com/gravixcloud/rtc/room/RTCE
 	public final fun getSubscriberTransport ()Lcom/gravixcloud/rtc/room/GravixIceTransport;
 	public final fun getVideoTrackCaptureDefaults ()Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;
 	public final fun getVideoTrackPublishDefaults ()Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;
+	public final fun gravixFailoverForMediaRefusal (Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun handleDataChunk (Lgravixcloud/GravixcloudModels$DataStream$Chunk;Lgravixcloud/GravixcloudModels$Encryption$Type;)V
 	public fun handleStreamHeader-XOlFtQw (Lgravixcloud/GravixcloudModels$DataStream$Header;Ljava/lang/String;Lgravixcloud/GravixcloudModels$Encryption$Type;)V
 	public fun handleStreamTrailer (Lgravixcloud/GravixcloudModels$DataStream$Trailer;Lgravixcloud/GravixcloudModels$Encryption$Type;)V
@@ -2948,6 +3663,7 @@ public final class com/gravixcloud/rtc/room/Room : com/gravixcloud/rtc/room/RTCE
 	public fun onDataStreamPacket (Lgravixcloud/GravixcloudModels$DataPacket;Lgravixcloud/GravixcloudModels$Encryption$Type;)V
 	public fun onEngineConnected ()V
 	public fun onEngineDisconnected (Lcom/gravixcloud/rtc/events/DisconnectReason;)V
+	public fun onEngineGravixRequestResponse (Ljava/lang/String;)V
 	public fun onEngineIceTransportChanged (Lcom/gravixcloud/rtc/room/GravixIceTransport;Lcom/gravixcloud/rtc/room/GravixIceTransport;Lcom/gravixcloud/rtc/room/GravixIceTransport;Lcom/gravixcloud/rtc/room/GravixIceTransport;)V
 	public fun onEngineReconnectAttempt (ZLjava/lang/String;IZ)V
 	public fun onEngineReconnected ()V
@@ -3002,9 +3718,11 @@ public final class com/gravixcloud/rtc/room/Room : com/gravixcloud/rtc/room/RTCE
 	public final fun setE2eeManager (Lcom/gravixcloud/rtc/e2ee/E2EEManager;)V
 	public final fun setE2eeOptions (Lcom/gravixcloud/rtc/e2ee/E2EEOptions;)V
 	public final fun setEnableMetrics (Z)V
+	public final fun setForegroundService (Lcom/gravixcloud/rtc/service/GravixForegroundServiceOptions;)V
 	public final fun setGravixRecovery (Lcom/gravixcloud/rtc/GravixRecoveryOptions;)V
 	public final fun setGravixRegionHints (Ljava/util/List;)V
 	public final fun setMicrophoneMute (Z)V
+	public final fun setNoiseSuppression (Lcom/gravixcloud/rtc/noise/GravixNoiseSuppressionOptions;)V
 	public final fun setReconnectPolicy (Lcom/gravixcloud/rtc/room/network/ReconnectPolicy;)V
 	public final fun setReconnectionType (Lcom/gravixcloud/rtc/room/ReconnectType;)V
 	public final fun setRoomOptions (Lcom/gravixcloud/rtc/RoomOptions;)V
@@ -3183,6 +3901,7 @@ public abstract interface class com/gravixcloud/rtc/room/SignalClient$Listener {
 	public abstract fun onClose (Ljava/lang/String;I)V
 	public abstract fun onConnectionQuality (Ljava/util/List;)V
 	public abstract fun onError (Ljava/lang/Throwable;)V
+	public abstract fun onGravixRequestResponse (Ljava/lang/String;)V
 	public abstract fun onLeave (Lgravixcloud/GravixcloudRtc$LeaveRequest;)V
 	public abstract fun onLocalTrackPublished (Lgravixcloud/GravixcloudRtc$TrackPublishedResponse;)V
 	public abstract fun onLocalTrackSubscribed (Lgravixcloud/GravixcloudRtc$TrackSubscribed;)V
@@ -3199,6 +3918,10 @@ public abstract interface class com/gravixcloud/rtc/room/SignalClient$Listener {
 	public abstract fun onSubscriptionError (Lgravixcloud/GravixcloudRtc$SubscriptionResponse;)V
 	public abstract fun onSubscriptionPermissionUpdate (Lgravixcloud/GravixcloudRtc$SubscriptionPermissionUpdate;)V
 	public abstract fun onTrickle (Lorg/webrtc/IceCandidate;Lgravixcloud/GravixcloudRtc$SignalTarget;)V
+}
+
+public final class com/gravixcloud/rtc/room/SignalClient$Listener$DefaultImpls {
+	public static fun onGravixRequestResponse (Lcom/gravixcloud/rtc/room/SignalClient$Listener;Ljava/lang/String;)V
 }
 
 public final class com/gravixcloud/rtc/room/SignalClient_Factory : dagger/internal/Factory {
@@ -3669,8 +4392,8 @@ public final class com/gravixcloud/rtc/room/participant/AudioTrackPublishOptions
 	public fun <init> ()V
 	public fun <init> (Ljava/lang/String;Lcom/gravixcloud/rtc/room/participant/BaseAudioTrackPublishOptions;Lcom/gravixcloud/rtc/room/track/Track$Source;Ljava/lang/String;)V
 	public synthetic fun <init> (Ljava/lang/String;Lcom/gravixcloud/rtc/room/participant/BaseAudioTrackPublishOptions;Lcom/gravixcloud/rtc/room/track/Track$Source;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun <init> (Ljava/lang/String;Ljava/lang/Integer;ZZLcom/gravixcloud/rtc/room/track/Track$Source;Ljava/lang/String;Z)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Integer;ZZLcom/gravixcloud/rtc/room/track/Track$Source;Ljava/lang/String;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/Integer;ZZLcom/gravixcloud/rtc/room/track/Track$Source;Ljava/lang/String;ZZ)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Integer;ZZLcom/gravixcloud/rtc/room/track/Track$Source;Ljava/lang/String;ZZILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component2 ()Ljava/lang/Integer;
 	public final fun component3 ()Z
@@ -3678,8 +4401,9 @@ public final class com/gravixcloud/rtc/room/participant/AudioTrackPublishOptions
 	public final fun component5 ()Lcom/gravixcloud/rtc/room/track/Track$Source;
 	public final fun component6 ()Ljava/lang/String;
 	public final fun component7 ()Z
-	public final fun copy (Ljava/lang/String;Ljava/lang/Integer;ZZLcom/gravixcloud/rtc/room/track/Track$Source;Ljava/lang/String;Z)Lcom/gravixcloud/rtc/room/participant/AudioTrackPublishOptions;
-	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/room/participant/AudioTrackPublishOptions;Ljava/lang/String;Ljava/lang/Integer;ZZLcom/gravixcloud/rtc/room/track/Track$Source;Ljava/lang/String;ZILjava/lang/Object;)Lcom/gravixcloud/rtc/room/participant/AudioTrackPublishOptions;
+	public final fun component8 ()Z
+	public final fun copy (Ljava/lang/String;Ljava/lang/Integer;ZZLcom/gravixcloud/rtc/room/track/Track$Source;Ljava/lang/String;ZZ)Lcom/gravixcloud/rtc/room/participant/AudioTrackPublishOptions;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/room/participant/AudioTrackPublishOptions;Ljava/lang/String;Ljava/lang/Integer;ZZLcom/gravixcloud/rtc/room/track/Track$Source;Ljava/lang/String;ZZILjava/lang/Object;)Lcom/gravixcloud/rtc/room/participant/AudioTrackPublishOptions;
 	public fun equals (Ljava/lang/Object;)Z
 	public fun getAudioBitrate ()Ljava/lang/Integer;
 	public fun getDtx ()Z
@@ -3687,6 +4411,7 @@ public final class com/gravixcloud/rtc/room/participant/AudioTrackPublishOptions
 	public fun getPreconnect ()Z
 	public fun getRed ()Z
 	public fun getSource ()Lcom/gravixcloud/rtc/room/track/Track$Source;
+	public final fun getStereo ()Z
 	public fun getStream ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
@@ -3757,6 +4482,7 @@ public final class com/gravixcloud/rtc/room/participant/LocalParticipant : com/g
 	public fun dispose ()V
 	public final fun getAudioTrackCaptureDefaults ()Lcom/gravixcloud/rtc/room/track/LocalAudioTrackOptions;
 	public final fun getAudioTrackPublishDefaults ()Lcom/gravixcloud/rtc/room/participant/AudioTrackPublishDefaults;
+	public final fun getGravixCameraWanted ()Z
 	public final fun getOrCreateDefaultAudioTrack ()Lcom/gravixcloud/rtc/room/track/LocalAudioTrack;
 	public final fun getOrCreateDefaultVideoTrack ()Lcom/gravixcloud/rtc/room/track/LocalVideoTrack;
 	public final fun getScreenShareTrackCaptureDefaults ()Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;
@@ -5200,6 +5926,87 @@ public final class com/gravixcloud/rtc/rpc/RpcError$BuiltinRpcError : java/lang/
 
 public final class com/gravixcloud/rtc/rpc/RpcError$Companion {
 	public final fun fromProto (Lgravixcloud/GravixcloudModels$RpcError;)Lcom/gravixcloud/rtc/rpc/RpcError;
+}
+
+public final class com/gravixcloud/rtc/service/GravixCallLeaveReceiver : android/content/BroadcastReceiver {
+	public fun <init> ()V
+	public fun onReceive (Landroid/content/Context;Landroid/content/Intent;)V
+}
+
+public final class com/gravixcloud/rtc/service/GravixCallService : android/app/Service {
+	public static final field CHANNEL_ID Ljava/lang/String;
+	public static final field Companion Lcom/gravixcloud/rtc/service/GravixCallService$Companion;
+	public static final field META_ICON Ljava/lang/String;
+	public fun <init> ()V
+	public fun onBind (Landroid/content/Intent;)Landroid/os/IBinder;
+	public fun onCreate ()V
+	public fun onDestroy ()V
+	public fun onStartCommand (Landroid/content/Intent;II)I
+	public fun onTaskRemoved (Landroid/content/Intent;)V
+}
+
+public final class com/gravixcloud/rtc/service/GravixCallService$Companion {
+}
+
+public final class com/gravixcloud/rtc/service/GravixForegroundService {
+	public static final field INSTANCE Lcom/gravixcloud/rtc/service/GravixForegroundService;
+	public static final field STOP_GRACE_MS J
+	public static final fun addLeaveListener (Ljava/lang/Runnable;)V
+	public static final fun getActiveTypes ()Ljava/util/List;
+	public static final fun getDefaults ()Lcom/gravixcloud/rtc/service/GravixForegroundServiceOptions;
+	public static final fun getLeaveRequests ()Lkotlinx/coroutines/flow/SharedFlow;
+	public static final fun hold ()Lcom/gravixcloud/rtc/service/GravixForegroundService$Hold;
+	public static final fun isRunning ()Z
+	public static final fun removeLeaveListener (Ljava/lang/Runnable;)V
+	public static final fun setDefaults (Lcom/gravixcloud/rtc/service/GravixForegroundServiceOptions;)V
+	public static final fun start (Landroid/content/Context;)V
+	public static final fun start (Landroid/content/Context;Lcom/gravixcloud/rtc/service/GravixForegroundServiceOptions;)V
+	public static final fun start (Landroid/content/Context;Lcom/gravixcloud/rtc/service/GravixForegroundServiceOptions;Z)V
+	public static final fun start (Landroid/content/Context;Lcom/gravixcloud/rtc/service/GravixForegroundServiceOptions;ZZ)V
+	public static synthetic fun start$default (Landroid/content/Context;Lcom/gravixcloud/rtc/service/GravixForegroundServiceOptions;ZZILjava/lang/Object;)V
+	public static final fun stop ()V
+	public static final fun update (Ljava/lang/Boolean;Ljava/lang/Boolean;)V
+}
+
+public final class com/gravixcloud/rtc/service/GravixForegroundService$Hold {
+	public final fun release ()V
+}
+
+public final class com/gravixcloud/rtc/service/GravixForegroundServiceOptions {
+	public fun <init> ()V
+	public fun <init> (Z)V
+	public fun <init> (ZLjava/lang/String;)V
+	public fun <init> (ZLjava/lang/String;Ljava/lang/String;)V
+	public fun <init> (ZLjava/lang/String;Ljava/lang/String;I)V
+	public fun <init> (ZLjava/lang/String;Ljava/lang/String;IZ)V
+	public fun <init> (ZLjava/lang/String;Ljava/lang/String;IZLjava/lang/String;)V
+	public fun <init> (ZLjava/lang/String;Ljava/lang/String;IZLjava/lang/String;Z)V
+	public fun <init> (ZLjava/lang/String;Ljava/lang/String;IZLjava/lang/String;ZZ)V
+	public fun <init> (ZLjava/lang/String;Ljava/lang/String;IZLjava/lang/String;ZZZ)V
+	public synthetic fun <init> (ZLjava/lang/String;Ljava/lang/String;IZLjava/lang/String;ZZZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()I
+	public final fun component5 ()Z
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Z
+	public final fun component8 ()Z
+	public final fun component9 ()Z
+	public final fun copy (ZLjava/lang/String;Ljava/lang/String;IZLjava/lang/String;ZZZ)Lcom/gravixcloud/rtc/service/GravixForegroundServiceOptions;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/service/GravixForegroundServiceOptions;ZLjava/lang/String;Ljava/lang/String;IZLjava/lang/String;ZZZILjava/lang/Object;)Lcom/gravixcloud/rtc/service/GravixForegroundServiceOptions;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBackgroundKeepAlive ()Z
+	public final fun getClaimMicrophoneAtStart ()Z
+	public final fun getEnabled ()Z
+	public final fun getIncludeCamera ()Z
+	public final fun getLeaveActionLabel ()Ljava/lang/String;
+	public final fun getNotificationIcon ()I
+	public final fun getNotificationText ()Ljava/lang/String;
+	public final fun getNotificationTitle ()Ljava/lang/String;
+	public final fun getShowLeaveAction ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class com/gravixcloud/rtc/service/GravixRoomService {

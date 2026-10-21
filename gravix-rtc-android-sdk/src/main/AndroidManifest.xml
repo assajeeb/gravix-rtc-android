@@ -23,6 +23,16 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
+    <!-- GRAVIX (2026-10-21) call foreground service (GravixCallService): keeps the microphone and the room playback
+         alive in the background. OFF by default: it starts only when the app enables GravixForegroundService
+         (RoomOptions.foregroundService / GravixForegroundService.defaults). The app requests POST_NOTIFICATIONS at
+         runtime itself. Apps that never use it may remove these entries with tools:node="remove" (README). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <!-- GRAVIX: carried over from the vendored audioswitch's own manifest (third_party/audioswitch). -->
     <uses-permission
         android:name="android.permission.BLUETOOTH"
@@ -35,5 +45,14 @@
             android:enabled="true"
             android:foregroundServiceType="mediaProjection"
             android:stopWithTask="true" />
+        <service
+            android:name="com.gravixcloud.rtc.service.GravixCallService"
+            android:enabled="true"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="microphone|mediaPlayback|camera" />
+        <receiver
+            android:name="com.gravixcloud.rtc.service.GravixCallLeaveReceiver"
+            android:exported="false" />
     </application>
 </manifest>

@@ -141,6 +141,13 @@ package com.gravixcloud.rtc
  *   for [slowTcpForMs] is reported once ([RoomEvent.SlowTcpTransport][com.gravixcloud.rtc.events.RoomEvent.SlowTcpTransport]),
  *   again after it came back below (1 s).
  * @property slowTcpForMs see [slowTcpRttMs] (10 s).
+ * @property mediaRefusalFailover GRAVIX (2026-10-21, per-region media): when the server refuses a medium on this node
+ *   (a signal request response carrying `media_not_allowed`, e.g. a video publish on an audio-only region), the
+ *   session moves ONCE to the next region that allows it (a full reconnect; the region is noted as refusing that
+ *   medium for 10 min) and the refused camera is published again there if the app had asked for it. A second refusal
+ *   in the same session is left to the app; the session's join media becomes video for every later restart /
+ *   failover. Off: the refusal steers nothing (no move, no region note, no media change). The Flutter SDK's
+ *   GravixRecoveryOptions.mediaRefusalFailover.
  */
 data class GravixRecoveryOptions @JvmOverloads constructor(
     val measuredRegionFailover: Boolean = true,
@@ -166,6 +173,7 @@ data class GravixRecoveryOptions @JvmOverloads constructor(
     val iceTransportWatchMs: Long? = DEFAULT_ICE_TRANSPORT_WATCH_MS,
     val slowTcpRttMs: Long = DEFAULT_SLOW_TCP_RTT_MS,
     val slowTcpForMs: Long = DEFAULT_SLOW_TCP_FOR_MS,
+    val mediaRefusalFailover: Boolean = true,
 ) {
     /** True when any region switch is on (the engine then consults the Gravix region strategy). */
     val regionStrategyEnabled: Boolean
@@ -205,6 +213,7 @@ data class GravixRecoveryOptions @JvmOverloads constructor(
             resumeAfterNetworkSocketError = false,
             freshPeerFailedGraceMs = null,
             iceTransportWatchMs = null,
+            mediaRefusalFailover = false,
         )
     }
 }

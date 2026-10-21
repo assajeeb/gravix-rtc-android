@@ -17,6 +17,7 @@
 package com.gravixcloud.rtc.join
 
 import com.gravixcloud.rtc.events.DisconnectReason
+import com.gravixcloud.rtc.service.GravixForegroundService
 import com.gravixcloud.rtc.util.GravixLogSink
 import com.gravixcloud.rtc.util.LoggingLevel
 import com.gravixcloud.rtc.util.TimeoutException
@@ -122,6 +123,7 @@ class GravixRejoinPolicy private constructor(builder: Builder) {
             cancelLocked()
             attempt = 0
         }
+        GravixForegroundService.release(this)
     }
 
     /** The live is back after [liveEnded]: joins again now (counters reset). */
@@ -190,6 +192,7 @@ class GravixRejoinPolicy private constructor(builder: Builder) {
             released = true
             cancelLocked()
         }
+        GravixForegroundService.release(this)
         scope.cancel()
     }
 
@@ -203,6 +206,9 @@ class GravixRejoinPolicy private constructor(builder: Builder) {
 
     private fun scheduleLocked(delayMs: Long, after: String) {
         log("rejoinScheduled", "n=${attempt + 1} in=${delayMs}ms after=$after")
+        // GRAVIX (2026-10-21): the call foreground service stays through the whole backoff (a rejoin can never
+        // restart it from the background, which Android 14 refuses); released once nothing is pending
+        GravixForegroundService.holdIfActive(this)
         cancelLocked()
         timer = scope.launch {
             delay(delayMs)
@@ -217,8 +223,17 @@ class GravixRejoinPolicy private constructor(builder: Builder) {
 
     private fun stillWanted(): Boolean = !released && !refusedFlag && !ended && liveOn.isLiveOn()
 
-    @Suppress("SwallowedException", "CyclomaticComplexMethod") // a failed entry check joins anyway (logged)
     private suspend fun run() {
+        try {
+            runAttempt()
+        } finally {
+            // nothing scheduled or running any more (joined, gave up, refused): the room's own hold (or none) decides
+            if (!pending) GravixForegroundService.release(this)
+        }
+    }
+
+    @Suppress("SwallowedException", "CyclomaticComplexMethod", "ReturnCount") // a failed entry check joins anyway (logged)
+    private suspend fun runAttempt() {
         var gaveUpWhy: String? = null
         synchronized(lock) {
             timer = null

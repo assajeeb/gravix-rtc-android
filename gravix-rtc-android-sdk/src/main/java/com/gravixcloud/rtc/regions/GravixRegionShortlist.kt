@@ -106,6 +106,7 @@ data class GravixRegionDirectory @JvmOverloads constructor(
                             put("url", r.url)
                             r.probeUrl?.let { put("probe_url", it) }
                             r.estRttMs?.let { put("est_rtt_ms", it) }
+                            r.media?.let { m -> put("media", buildJsonArray { m.forEach { add(JsonPrimitive(it)) } }) }
                         },
                     )
                 }
@@ -143,6 +144,7 @@ data class GravixRegionDirectory @JvmOverloads constructor(
                     url = url,
                     probeUrl = r.string("probe_url"),
                     estRttMs = r.number("est_rtt_ms")?.takeIf { it >= 0 },
+                    media = GravixRegionMedia.parse(r["media"]),
                 )
             }
             val shortlist = (b["shortlist"] as? JsonArray).orEmpty().mapNotNull { s ->
@@ -306,11 +308,18 @@ object GravixRegionShortlist {
         return true
     }
 
-    /** When nothing was measured: `shortlist[0]`, else the lowest `est_rtt_ms`, else null. */
+    /**
+     * When nothing was measured: `shortlist[0]`, else the lowest `est_rtt_ms`, else null.
+     *
+     * With [media] (a join's, 2026-10-21): the first shortlist region that allows it, else the lowest `est_rtt_ms`
+     * that allows it, else null -- the caller's own last resort decides (a join never fails for want of a region).
+     */
     @JvmStatic
-    fun fallbackRegion(dir: GravixRegionDirectory): GravixPlannedCandidate? {
-        shortlistEntries(dir).firstOrNull()?.let { return GravixPlannedCandidate(it, GravixRegionCandidateSource.SHORTLIST) }
-        byEst(byRegion(dir.regions).values.toList()).firstOrNull()?.let {
+    @JvmOverloads
+    fun fallbackRegion(dir: GravixRegionDirectory, media: GravixRoomMedia? = null): GravixPlannedCandidate? {
+        fun ok(e: GravixRegionUrl) = media == null || GravixRegionMedia.regionAllows(e, media)
+        shortlistEntries(dir).firstOrNull(::ok)?.let { return GravixPlannedCandidate(it, GravixRegionCandidateSource.SHORTLIST) }
+        byEst(byRegion(dir.regions).values.toList()).firstOrNull(::ok)?.let {
             return GravixPlannedCandidate(it, GravixRegionCandidateSource.EST)
         }
         return null
