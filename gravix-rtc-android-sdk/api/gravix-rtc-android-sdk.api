@@ -1892,6 +1892,7 @@ public final class com/gravixcloud/rtc/join/GravixJoinTokenFetcher$Companion {
 }
 
 public final class com/gravixcloud/rtc/join/GravixJoinTokenProvider {
+	public static final field Companion Lcom/gravixcloud/rtc/join/GravixJoinTokenProvider$Companion;
 	public fun <init> (Lcom/gravixcloud/rtc/join/GravixJoinTokenFetcher;)V
 	public fun <init> (Lcom/gravixcloud/rtc/join/GravixJoinTokenFetcher;Lcom/gravixcloud/rtc/join/GravixTokenReuse;)V
 	public final fun cached (Lcom/gravixcloud/rtc/join/GravixJoinRequest;)Lcom/gravixcloud/rtc/join/GravixJoinCredentials;
@@ -1900,6 +1901,20 @@ public final class com/gravixcloud/rtc/join/GravixJoinTokenProvider {
 	public final fun getReuse ()Lcom/gravixcloud/rtc/join/GravixTokenReuse;
 	public final fun invalidate (Lcom/gravixcloud/rtc/join/GravixJoinRequest;)V
 	public final fun invalidateAll ()V
+	public static final fun local (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lcom/gravixcloud/rtc/join/GravixJoinTokenProvider;
+	public static final fun local (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)Lcom/gravixcloud/rtc/join/GravixJoinTokenProvider;
+	public static final fun local (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/util/function/Function;)Lcom/gravixcloud/rtc/join/GravixJoinTokenProvider;
+	public static final fun local (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/util/function/Function;Lcom/gravixcloud/rtc/join/GravixTokenReuse;)Lcom/gravixcloud/rtc/join/GravixJoinTokenProvider;
+}
+
+public final class com/gravixcloud/rtc/join/GravixJoinTokenProvider$Companion {
+	public final fun local (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lcom/gravixcloud/rtc/join/GravixJoinTokenProvider;
+	public final fun local (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)Lcom/gravixcloud/rtc/join/GravixJoinTokenProvider;
+	public final synthetic fun local (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLcom/gravixcloud/rtc/join/GravixTokenReuse;Lkotlin/jvm/functions/Function1;)Lcom/gravixcloud/rtc/join/GravixJoinTokenProvider;
+	public final fun local (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/util/function/Function;)Lcom/gravixcloud/rtc/join/GravixJoinTokenProvider;
+	public final fun local (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/util/function/Function;Lcom/gravixcloud/rtc/join/GravixTokenReuse;)Lcom/gravixcloud/rtc/join/GravixJoinTokenProvider;
+	public static synthetic fun local$default (Lcom/gravixcloud/rtc/join/GravixJoinTokenProvider$Companion;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLcom/gravixcloud/rtc/join/GravixTokenReuse;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lcom/gravixcloud/rtc/join/GravixJoinTokenProvider;
+	public static synthetic fun local$default (Lcom/gravixcloud/rtc/join/GravixJoinTokenProvider$Companion;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/util/function/Function;Lcom/gravixcloud/rtc/join/GravixTokenReuse;ILjava/lang/Object;)Lcom/gravixcloud/rtc/join/GravixJoinTokenProvider;
 }
 
 public abstract interface class com/gravixcloud/rtc/join/GravixLiveCheck {
@@ -2967,7 +2982,8 @@ public final class com/gravixcloud/rtc/regions/GravixRegionMeasurements {
 	public final fun measure (Lcom/gravixcloud/rtc/regions/GravixRegionMeasureOptions;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun measuredCandidates (Ljava/lang/String;)Ljava/util/List;
 	public static final fun measuredCandidates (Ljava/lang/String;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;)Ljava/util/List;
-	public static synthetic fun measuredCandidates$default (Ljava/lang/String;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;ILjava/lang/Object;)Ljava/util/List;
+	public static final fun measuredCandidates (Ljava/lang/String;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)Ljava/util/List;
+	public static synthetic fun measuredCandidates$default (Ljava/lang/String;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;ILjava/lang/Object;)Ljava/util/List;
 	public static final fun pickRegion (Ljava/lang/String;Ljava/util/List;)Lcom/gravixcloud/rtc/regions/GravixRegionPick;
 	public static final fun pickRegion (Ljava/lang/String;Ljava/util/List;Ljava/lang/String;)Lcom/gravixcloud/rtc/regions/GravixRegionPick;
 	public static final fun pickRegion (Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Lcom/gravixcloud/rtc/regions/GravixRegionMeasurementResult;)Lcom/gravixcloud/rtc/regions/GravixRegionPick;
@@ -6133,6 +6149,69 @@ public final class com/gravixcloud/rtc/token/DevelopmentTokenServerOptions {
 
 public abstract interface class com/gravixcloud/rtc/token/FixedTokenSource : com/gravixcloud/rtc/token/TokenSource {
 	public abstract fun fetch-IoAF18A (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class com/gravixcloud/rtc/token/GravixTokenBuildException : java/lang/IllegalArgumentException {
+}
+
+public final class com/gravixcloud/rtc/token/GravixTokenBuilder {
+	public static final field DEFAULT_TTL_SECONDS J
+	public static final field INSTANCE Lcom/gravixcloud/rtc/token/GravixTokenBuilder;
+	public static final field MAX_TTL_SECONDS J
+	public static final field ROOM_SEPARATOR Ljava/lang/String;
+	public static final fun create (Ljava/lang/String;Ljava/lang/String;Lcom/gravixcloud/rtc/token/GravixTokenOptions;)Ljava/lang/String;
+	public static final fun displayName (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+	public static final fun roomName (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/token/GravixTokenOptions {
+	public static final field Companion Lcom/gravixcloud/rtc/token/GravixTokenOptions$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;J)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;JZ)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;JZZ)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;JZZZ)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;JZZZZ)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;JZZZZLjava/util/List;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;JZZZZLjava/util/List;Z)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;JZZZZLjava/util/List;ZZ)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;JZZZZLjava/util/List;ZZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun builder (Ljava/lang/String;Ljava/lang/String;)Lcom/gravixcloud/rtc/token/GravixTokenOptions$Builder;
+	public final fun getAttributes ()Ljava/util/Map;
+	public final fun getCanPublish ()Z
+	public final fun getCanPublishData ()Z
+	public final fun getCanPublishSources ()Ljava/util/List;
+	public final fun getCanSubscribe ()Z
+	public final fun getCanUpdateOwnMetadata ()Z
+	public final fun getHidden ()Z
+	public final fun getIdentity ()Ljava/lang/String;
+	public final fun getMetadata ()Ljava/lang/String;
+	public final fun getName ()Ljava/lang/String;
+	public final fun getRoom ()Ljava/lang/String;
+	public final fun getRoomAdmin ()Z
+	public final fun getTtlSeconds ()J
+}
+
+public final class com/gravixcloud/rtc/token/GravixTokenOptions$Builder {
+	public final fun attributes (Ljava/util/Map;)Lcom/gravixcloud/rtc/token/GravixTokenOptions$Builder;
+	public final fun build ()Lcom/gravixcloud/rtc/token/GravixTokenOptions;
+	public final fun canPublish (Z)Lcom/gravixcloud/rtc/token/GravixTokenOptions$Builder;
+	public final fun canPublishData (Z)Lcom/gravixcloud/rtc/token/GravixTokenOptions$Builder;
+	public final fun canPublishSources (Ljava/util/List;)Lcom/gravixcloud/rtc/token/GravixTokenOptions$Builder;
+	public final fun canSubscribe (Z)Lcom/gravixcloud/rtc/token/GravixTokenOptions$Builder;
+	public final fun canUpdateOwnMetadata (Z)Lcom/gravixcloud/rtc/token/GravixTokenOptions$Builder;
+	public final fun hidden (Z)Lcom/gravixcloud/rtc/token/GravixTokenOptions$Builder;
+	public final fun metadata (Ljava/lang/String;)Lcom/gravixcloud/rtc/token/GravixTokenOptions$Builder;
+	public final fun name (Ljava/lang/String;)Lcom/gravixcloud/rtc/token/GravixTokenOptions$Builder;
+	public final fun roomAdmin (Z)Lcom/gravixcloud/rtc/token/GravixTokenOptions$Builder;
+	public final fun ttlSeconds (J)Lcom/gravixcloud/rtc/token/GravixTokenOptions$Builder;
+}
+
+public final class com/gravixcloud/rtc/token/GravixTokenOptions$Companion {
+	public final fun builder (Ljava/lang/String;Ljava/lang/String;)Lcom/gravixcloud/rtc/token/GravixTokenOptions$Builder;
 }
 
 public final class com/gravixcloud/rtc/token/RoomAgentDispatch {

@@ -18,6 +18,7 @@ package com.gravixcloud.rtc.regions
 
 import com.gravixcloud.rtc.ConnectOptions
 import com.gravixcloud.rtc.join.GravixJoinRequest
+import com.gravixcloud.rtc.join.GravixJoinTokenProvider
 import com.gravixcloud.rtc.regions.RegionTestKit.Table
 import com.gravixcloud.rtc.regions.RegionTestKit.onTestScheduler
 import com.gravixcloud.rtc.regions.RegionTestKit.unknownNet
@@ -164,6 +165,75 @@ class GravixRegionMediaTest {
         )
         assertEquals(token, GravixRegionMeasurements.resolveConnectUrl(token, media = GravixRoomMedia.AUDIO))
         assertEquals("[GravixRegion] pick media=audio -> token-url cause=nothing-measured", lines.last())
+    }
+
+    // Field 2026-10-27 (Flutter region_media_test.dart, same cases): token url doh1 (audio-only), no region list,
+    // doh1 not in this caller's shortlist (never measured): the video join stayed on doh1 and the camera was
+    // refused (media_not_allowed).
+    private val unmeasuredDoh1 =
+        """{"regions":[${r("doh1", """["audio"]""")},${r("dac1")},${r("blr1")},${r("sgp1")}],"shortlist":["dac1","blr1","sgp1"]}"""
+
+    @Test
+    fun anUnmeasuredAudioOnlyTokenUrlAVideoJoinTakesTheBestMeasuredRegionAllowingVideo() = runTest {
+        useVirtualClock()
+        measure(unmeasuredDoh1, mapOf("doh1" to 12L, "dac1" to 140L, "blr1" to 70L, "sgp1" to 95L))
+        val token = "wss://doh1.example.test"
+        assertEquals("wss://blr1.example.test", GravixRegionMeasurements.resolveConnectUrl(token, media = GravixRoomMedia.VIDEO))
+        assertTrue(
+            lines.toString(),
+            "[GravixRegion] candidates media=video pinned=doh1(audio-only) unmeasured -> directory+measured cause=media-not-allowed" in lines,
+        )
+        assertEquals(token, GravixRegionMeasurements.resolveConnectUrl(token, media = GravixRoomMedia.AUDIO))
+        assertEquals("no media: as before", token, GravixRegionMeasurements.resolveConnectUrl(token))
+    }
+
+    @Test
+    fun anUnmeasuredAudioOnlyTokenUrlNothingMeasuredTheFirstShortlistRegionAllowingVideo() = runTest {
+        useVirtualClock()
+        measure(unmeasuredDoh1, emptyMap())
+        assertEquals(
+            "wss://dac1.example.test",
+            GravixRegionMeasurements.resolveConnectUrl("wss://doh1.example.test", media = GravixRoomMedia.VIDEO),
+        )
+    }
+
+    @Test
+    fun noRegionAllowsTheMediaTheTokenUrlStaysAndTheLogSaysWhy() = runTest {
+        useVirtualClock()
+        measure("""{"regions":[${r("doh1", """["audio"]""")},${r("blr1", """["audio"]""")}],"shortlist":["blr1"]}""", mapOf("blr1" to 70L))
+        val token = "wss://doh1.example.test"
+        assertEquals(token, GravixRegionMeasurements.resolveConnectUrl(token, media = GravixRoomMedia.VIDEO))
+        assertTrue(
+            lines.toString(),
+            "[GravixRegion] candidates media=video pinned=doh1(audio-only) kept cause=no-region-allows-video" in lines,
+        )
+    }
+
+    @Test
+    fun aDeviceSignedTokenOnDoh1WithNoRegionListStillMovesAVideoJoinToARegionAllowingVideo() = runTest {
+        useVirtualClock()
+        measure(unmeasuredDoh1, mapOf("doh1" to 12L, "dac1" to 140L, "blr1" to 70L, "sgp1" to 95L))
+        val provider = GravixJoinTokenProvider.local("APPlocal", "x".repeat(32), "wss://doh1.example.test")
+        val creds = provider.getCredentials(GravixJoinRequest("r1", "u1", true))
+        assertEquals("wss://doh1.example.test", creds.url)
+        // GravixJoin picks the dial url from (credentials url, join media): the token's grant publishes -> video
+        val media = GravixRegionMedia.joinMedia(null, false, creds.token)
+        assertEquals(GravixRoomMedia.VIDEO, media)
+        assertEquals("wss://blr1.example.test", GravixRegionMeasurements.resolveConnectUrl(creds.url, media = media))
+        assertEquals(
+            "an audio join stays",
+            creds.url,
+            GravixRegionMeasurements.resolveConnectUrl(creds.url, media = GravixRoomMedia.AUDIO),
+        )
+    }
+
+    @Test
+    fun aUrlOutsideTheFleetIsStillNeverRedirected() = runTest {
+        useVirtualClock()
+        measure(unmeasuredDoh1, mapOf("blr1" to 70L))
+        val own = "wss://own.server.test"
+        assertEquals(own, GravixRegionMeasurements.resolveConnectUrl(own, media = GravixRoomMedia.VIDEO))
+        assertTrue(GravixRegionMeasurements.measuredCandidates(own, media = GravixRoomMedia.VIDEO).isEmpty())
     }
 
     @Test

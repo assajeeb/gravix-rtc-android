@@ -791,28 +791,61 @@ object GravixRegionMeasurements {
      * The measured regions as join candidates, for a connect whose token came with no region list -- only when
      * [connectUrl] is itself a measured region (a url outside them, e.g. the app's own server, is never
      * redirected). Else empty.
+     *
+     * [media] (2026-10-27, Flutter gravixMeasuredCandidates): [connectUrl] is a fleet region of the last
+     * `/v1/regions` answer that was not measured (outside this caller's shortlist) and does not allow [media]
+     * (doh1 audio-only, a video join): the candidates are the measured regions plus the directory, so [pickRegion]
+     * moves the join to the best measured region allowing [media], else the first shortlist region allowing it. No
+     * region allows [media]: empty (the token url stays) and the log says why. A lookup, nothing sent. Field
+     * 2026-10-27: such a video join stayed on doh1 and its camera publish was refused.
      */
     @JvmStatic
     @JvmOverloads
-    fun measuredCandidates(connectUrl: String, measurement: GravixRegionMeasurementResult? = current()): List<GravixRegionUrl> {
-        val m = measurement ?: return emptyList()
+    fun measuredCandidates(
+        connectUrl: String,
+        measurement: GravixRegionMeasurementResult? = current(),
+        media: GravixRoomMedia? = null,
+    ): List<GravixRegionUrl> {
         fun norm(u: String) = u.trimEnd('/')
-        if (m.regions.none { norm(it.url) == norm(connectUrl) }) return emptyList()
-        return m.regions.map { it.entry }
+        val m = measurement
+        if (m != null && m.regions.any { norm(it.url) == norm(connectUrl) }) return m.regions.map { it.entry }
+        if (media == null) return emptyList()
+        val dir = GravixRegionMedia.lastDirectory()
+        val n = GravixRegionFailoverOrder.normalizeUrl(connectUrl)
+        val token = dir.firstOrNull { GravixRegionFailoverOrder.normalizeUrl(it.url) == n } ?: return emptyList()
+        if (GravixRegionMedia.regionAllows(token, media)) return emptyList()
+        val why = "${token.region}(${GravixRegionMedia.skipWhy(token, media)})"
+        if (dir.none { GravixRegionMedia.regionAllows(it, media) }) {
+            GravixRegionLog.step("candidates", "media=${media.wireName} pinned=$why kept cause=no-region-allows-${media.wireName}")
+            return emptyList()
+        }
+        val out = ArrayList<GravixRegionUrl>(m?.regions?.map { it.entry } ?: emptyList())
+        for (c in dir) {
+            if (out.none { it.region == c.region || norm(it.url) == norm(c.url) }) out.add(c)
+        }
+        GravixRegionLog.step(
+            "candidates",
+            "media=${media.wireName} pinned=$why unmeasured -> directory+measured cause=media-not-allowed",
+        )
+        return out
     }
 
     /**
-     * The url a connect should use: the measured pick among [candidates] (default: the measured regions, when
-     * [connectUrl] is one of them), else [connectUrl] unchanged.
+     * The url a connect should use: the measured pick among [candidates] (default, null: [measuredCandidates] for
+     * [connectUrl] and [media]), else [connectUrl] unchanged.
      */
     @JvmStatic
     @JvmOverloads
     fun resolveConnectUrl(
         connectUrl: String,
-        candidates: List<GravixRegionUrl> = measuredCandidates(connectUrl),
+        candidates: List<GravixRegionUrl>? = null,
         homeRegion: String? = null,
         media: GravixRoomMedia? = null,
-    ): String = pickRegion(connectUrl, candidates, homeRegion, current(), media)?.entry?.url ?: connectUrl
+    ): String {
+        val m = current()
+        val list = candidates ?: measuredCandidates(connectUrl, m, media)
+        return pickRegion(connectUrl, list, homeRegion, m, media)?.entry?.url ?: connectUrl
+    }
 
     /**
      * The measurement as the analytics / connection reports carry it: a JSON object (wire names shared with the

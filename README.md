@@ -8,7 +8,7 @@ region failover and session recovery built in.
 - Packages: `com.gravixcloud.rtc` (Kotlin `Room` API), `com.gravixcloud.rtc.service` (`GravixRoomService`, the
   Java-first API)
 - minSdk 24, signalling protocol v13
-- Status: **0.2.0**, on Maven Central (see `CHANGELOG.md`)
+- Status: **0.3.0**, on Maven Central (see `CHANGELOG.md`)
 
 The engine is a white-labelled fork of the Apache-2.0 LiveKit Android SDK (v2.28.2); see `NOTICE` and
 `tools/rebrand/README.md`.
@@ -28,7 +28,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.gravixcloud:gravix-rtc-android:0.2.0")
+    implementation("com.gravixcloud:gravix-rtc-android:0.3.0")
 }
 ```
 
@@ -174,6 +174,26 @@ join.prepare(request).attachAsync().thenAccept(this::show);  // the room screen 
 
 Switch, adopt, the background guards, the rejoin policy and the `[GravixJoin]` / `[GravixPub]` step logs:
 `doc/FAST_JOIN.md`.
+
+### Signing join tokens on the device (optional)
+
+`GravixJoinTokenProvider.local(...)` signs the token on the device (`GravixTokenBuilder`, byte-identical to the npm
+`gravix-rtc-token`): no token round trip per room tap, cached like any provider.
+
+```kotlin
+val tokens = GravixJoinTokenProvider.local(appId, appCertificate, "wss://sgp1.gravixcloud.com") { r ->
+    GravixTokenOptions(r.room, r.identity, name = myName, canPublish = r.canPublish)
+}
+val join = GravixJoin.Builder(context, tokens).build()
+```
+
+Java: `GravixJoinTokenProvider.local(appId, cert, url, 6 * 3600L, r -> GravixTokenOptions.builder(r.getRoom(), r.getIdentity()).build(), GravixTokenReuse.FAST_JOIN)`
+or the short `local(appId, cert, url)`.
+
+**The App Certificate is then on the device.** Anyone who extracts it can sign a token for any identity and room of
+your app (publisher and room-admin grants included) until you rotate it in the console. Deliver it from your own server
+to signed-in users only and never commit it to source. If that is not acceptable, sign on your server
+(`GravixJoinTokenFetcher`).
 
 ## Reconnecting
 
@@ -326,7 +346,7 @@ lifecycleScope.launch { GravixForegroundService.leaveRequests.collect { room.dis
 | Path | What |
 |---|---|
 | `gravix-rtc-android-sdk/` | the SDK (`com.gravixcloud:gravix-rtc-android`); `api/` = the locked public API dump |
-| `gravix-rtc-android-camerax/`, `gravix-rtc-android-track-processors/` | optional add-on modules (not published as of 0.2.0) |
+| `gravix-rtc-android-camerax/`, `gravix-rtc-android-track-processors/` | optional add-on modules (not published as of 0.3.0) |
 | `gravix-rtc-android-test/` | engine test harness and the unit tests (`./gradlew :gravix-rtc-android-test:testRelease`) |
 | `sample-app-basic/`, `sample-app-java/`, other `sample-app*/`, `examples/` | sample apps (Kotlin; `sample-app-java` is Java only) |
 | `protocol/` | upstream protobuf definitions (git submodule, unmodified; vendored into the public snapshot) |

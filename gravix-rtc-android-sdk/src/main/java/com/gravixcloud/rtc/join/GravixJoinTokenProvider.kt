@@ -16,7 +16,10 @@
 
 package com.gravixcloud.rtc.join
 
+import com.gravixcloud.rtc.room.requireNotRetiredGravixServer
 import com.gravixcloud.rtc.token.ConfigurableTokenSource
+import com.gravixcloud.rtc.token.GravixTokenBuilder
+import com.gravixcloud.rtc.token.GravixTokenOptions
 import com.gravixcloud.rtc.token.TokenPayload
 import com.gravixcloud.rtc.token.TokenRequestOptions
 import com.gravixcloud.rtc.util.TimeoutException
@@ -204,10 +207,71 @@ class GravixJoinTokenProvider internal constructor(
         return fresh
     }
 
-    private companion object {
+    companion object {
+        /**
+         * GRAVIX (2026-10-27): a provider that SIGNS the join token on the device ([GravixTokenBuilder]): no token round
+         * trip at all, so a room tap costs one HMAC. Cached like any provider ([reuse], 16 entries). It has no region
+         * list (the credentials never carry one on Android): the join dials [url], or the nearest measured region when
+         * [url] is one of the measured regions, exactly as for a fetched token (start the measurement with
+         * `GravixRegions.startMeasurement`); a video join whose [url] is an audio-only region (e.g. doh1) moves to a
+         * region that allows video.
+         *
+         * WARNING: the App Certificate is then ON THE DEVICE. Anyone who extracts it (from the APK, from memory, from the
+         * request that delivered it) can sign a token for ANY identity and ANY room / grant of your app until you rotate
+         * it in the console (which breaks every installed copy holding the old one). Deliver it from your own server to
+         * signed-in users only; never commit it to your source. If that is not acceptable, keep signing on your server
+         * ([GravixJoinTokenFetcher]).
+         *
+         * [options] decides the grant for a request (default: the request's room and identity, [GravixJoinRequest.canPublish],
+         * [ttlSeconds] default 6 h). A [com.gravixcloud.rtc.token.GravixTokenBuildException] (bad App ID, short
+         * certificate, empty room or identity, ttl) surfaces as [GravixJoinTokenException] (`FETCHER`).
+         *
+         * @throws com.gravixcloud.rtc.room.RetiredServerException when [url] is a retired Gravix host.
+         */
+        @JvmStatic
+        @JvmOverloads
+        @Suppress("LongParameterList") // the url, the certificate and the grant rules
+        fun local(
+            appId: String,
+            appCertificate: String,
+            url: String,
+            ttlSeconds: Long = GravixTokenBuilder.DEFAULT_TTL_SECONDS,
+            options: Function<GravixJoinRequest, GravixTokenOptions>? = null,
+            reuse: GravixTokenReuse = GravixTokenReuse.FAST_JOIN,
+        ): GravixJoinTokenProvider = GravixJoinTokenProvider(localFetcher(appId, appCertificate, url, ttlSeconds, options), reuse)
+
+        /** Kotlin: [local] with a lambda grant. */
+        @JvmSynthetic
+        @Suppress("LongParameterList")
+        fun local(
+            appId: String,
+            appCertificate: String,
+            url: String,
+            ttlSeconds: Long = GravixTokenBuilder.DEFAULT_TTL_SECONDS,
+            reuse: GravixTokenReuse = GravixTokenReuse.FAST_JOIN,
+            options: (GravixJoinRequest) -> GravixTokenOptions,
+        ): GravixJoinTokenProvider = local(appId, appCertificate, url, ttlSeconds, Function(options), reuse)
+
+        @Suppress("LongParameterList")
+        internal fun localFetcher(
+            appId: String,
+            appCertificate: String,
+            url: String,
+            ttlSeconds: Long,
+            options: Function<GravixJoinRequest, GravixTokenOptions>?,
+            nowMs: () -> Long = System::currentTimeMillis,
+        ): GravixJoinTokenFetcher {
+            requireNotRetiredGravixServer(url)
+            return GravixJoinTokenFetcher { r ->
+                val grant = options?.apply(r)
+                    ?: GravixTokenOptions(room = r.room, identity = r.identity, ttlSeconds = ttlSeconds, canPublish = r.canPublish)
+                GravixJoinCredentials(url, GravixTokenBuilder.create(appId, appCertificate, grant, nowMs()))
+            }
+        }
+
         private const val MAX_ENTRIES = 16
         private const val DEFAULT_TIMEOUT_MS = 15_000L
-        val DIRECT = Executor { it.run() }
+        private val DIRECT = Executor { it.run() }
     }
 }
 

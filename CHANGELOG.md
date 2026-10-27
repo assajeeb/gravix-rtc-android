@@ -2,6 +2,25 @@
 
 Upstream (LiveKit Android SDK) history up to the fork point: `doc/upstream/CHANGELOG.md`.
 
+## 0.3.0 (2026-10-27)
+
+### Added: on-device join-token signing
+- `GravixTokenBuilder.create(appId, appCertificate, GravixTokenOptions)` signs a join token (HS256 JWT) on the device, no
+  network: byte-for-byte the token the npm `gravix-rtc-token` makes for the same inputs and clock (vectors generated
+  from the JS build). Same validation as JS (empty / `_`-containing App ID, certificate under 32 characters, empty room
+  or identity, ttl outside (0, 24 h], default 6 h); errors never contain the certificate. No new dependency.
+- `GravixJoinTokenProvider.local(appId, appCertificate, url, ttlSeconds, options)`: a provider that signs per request
+  and caches like any other (no token round trip). No region list: the join uses the start-up measurement as for a
+  token response without one, and a video join whose token url is an audio-only region (e.g. doh1) moves to a region
+  that allows video (the 4b5d7e0e media-pick fix).
+- Security: the App Certificate is then on the device; anyone who extracts it can sign tokens for any identity and room
+  of the app until it is rotated. Deliver it from the app's own server to signed-in users only.
+
+### Fixed: a video join no longer lands on an audio-only region it never measured
+- When the token's url is a region that allows audio only (doh1) and this device never measured it (no region list
+  either), a video join goes to the best measured region allowing video, else the first shortlist region allowing it;
+  an audio join stays. Before, the camera publish was refused (`media_not_allowed`). Lookup only, no network call.
+
 ## 0.2.0 (2026-10-22)
 
 On-device noise suppression (on by default), an opt-in call foreground service, region-aware join, and DTX/stereo
