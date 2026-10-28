@@ -148,6 +148,13 @@ package com.gravixcloud.rtc
  *   in the same session is left to the app; the session's join media becomes video for every later restart /
  *   failover. Off: the refusal steers nothing (no move, no region note, no media change). The Flutter SDK's
  *   GravixRecoveryOptions.mediaRefusalFailover.
+ * @property retryServerRestart GRAVIX (0.3.1): a connect whose last url answered the WebSocket with a gateway error
+ *   (HTTP 502/503/504) and no reason text (the SFU restarting behind its proxy, e.g. during a drain roll; never a
+ *   refusal of this join) dials that url again, at most twice, after 0.5 s and 1.5 s. Field 2026-10-27 (dac1, a drain
+ *   roll): such a join failed in 0.1 s while the new server process was up a second later. A refusal with a reason
+ *   (401/403, "app user limit reached", "app plan limit reached") stays final, and a region failover still comes
+ *   first. Off: the connect fails at once, as before. The Flutter SDK 0.7.2's `ConnectOptions.joinRetries` for this
+ *   case.
  */
 data class GravixRecoveryOptions @JvmOverloads constructor(
     val measuredRegionFailover: Boolean = true,
@@ -174,6 +181,7 @@ data class GravixRecoveryOptions @JvmOverloads constructor(
     val slowTcpRttMs: Long = DEFAULT_SLOW_TCP_RTT_MS,
     val slowTcpForMs: Long = DEFAULT_SLOW_TCP_FOR_MS,
     val mediaRefusalFailover: Boolean = true,
+    val retryServerRestart: Boolean = true,
 ) {
     /** True when any region switch is on (the engine then consults the Gravix region strategy). */
     val regionStrategyEnabled: Boolean
@@ -189,6 +197,13 @@ data class GravixRecoveryOptions @JvmOverloads constructor(
         const val DEFAULT_ICE_TRANSPORT_WATCH_MS = 5000L
         const val DEFAULT_SLOW_TCP_RTT_MS = 1000L
         const val DEFAULT_SLOW_TCP_FOR_MS = 10_000L
+
+        /** [retryServerRestart]: the wait before each retry (one entry per retry). */
+        internal val SERVER_RESTART_RETRY_DELAYS_MS = longArrayOf(500L, 1500L)
+
+        /** [retryServerRestart]: a gateway error (502/503/504) with no reason text. */
+        @Suppress("MagicNumber") // HTTP statuses
+        internal fun isServerRestart(status: Int?, hadReason: Boolean): Boolean = status in 502..504 && !hadReason
 
         /** Everything off: the upstream engine's behaviour. */
         @JvmField
@@ -214,6 +229,7 @@ data class GravixRecoveryOptions @JvmOverloads constructor(
             freshPeerFailedGraceMs = null,
             iceTransportWatchMs = null,
             mediaRefusalFailover = false,
+            retryServerRestart = false,
         )
     }
 }

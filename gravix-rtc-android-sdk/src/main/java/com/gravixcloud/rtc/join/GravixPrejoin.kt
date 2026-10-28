@@ -31,6 +31,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.CompletableFuture
+import kotlin.math.roundToLong
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
@@ -70,6 +71,8 @@ class GravixPrejoin internal constructor(
     val abandonInBackground: Boolean,
     // built with the default factory AND the default leave: the only Room released after it died (ROOM_GONE)
     private val ownsRoom: Boolean,
+    /** See [GravixJoin.Builder.setRetryCapacityRefusals]. */
+    private val retryCapacityRefusals: Boolean,
 ) {
     internal val key: String = request.sessionKey
     private val lock = owner.lock
@@ -288,7 +291,7 @@ class GravixPrejoin internal constructor(
         connectStartMs = sinceTapMs()
         mark(GravixJoinEventKind.CONNECT_START, null, "host=${GravixJoinLog.host(t.url)}")
         try {
-            connectFn.connect(r, t)
+            connectRetryingCapacity(r, t)
         } catch (e: CancellationException) {
             if (isEnded) {
                 log("connectCancelled", "abandoned during the connect", LoggingLevel.VERBOSE)
@@ -324,6 +327,31 @@ class GravixPrejoin internal constructor(
         watchRoom(r)
         mark(GravixJoinEventKind.CONNECTED)
         connectedDeferred.complete(true)
+    }
+
+    // [retryCapacityRefusals] (0.3.1): a join the server refused at the owner's user cap is tried again on the same
+    // Room after a wait, silently (the join stays CONNECTING, the screen's attach keeps waiting), until it connects,
+    // fails otherwise, or the join ends (abandonInternal cancels this job: the delay ends at once). One
+    // `capacityRetry` line per wait.
+    private suspend fun connectRetryingCapacity(r: Room, t: GravixJoinCredentials) {
+        var n = 0
+        while (true) {
+            try {
+                connectFn.connect(r, t)
+                if (n > 0) log("capacityRetryOk", "after=$n waited=${sinceTapMs() - connectStartMs}ms")
+                return
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                if (!retryCapacityRefusals || isEnded || !GravixJoin.isCapacityRefusal(e)) throw e
+                val base = CAPACITY_RETRY_BACKOFF_MS[minOf(n, CAPACITY_RETRY_BACKOFF_MS.size - 1)]
+                val wait = (base * (CAPACITY_JITTER_MIN + CAPACITY_JITTER_SPAN * owner.random())).roundToLong()
+                n++
+                log("capacityRetry", "n=$n in=${wait}ms (app user limit reached)")
+                delay(wait)
+                if (isEnded) throw e
+            }
+        }
     }
 
     // ------------------------------------------------------------------------------------------- lifecycle
@@ -602,6 +630,11 @@ class GravixPrejoin internal constructor(
 
     private companion object {
         private const val UNWIND_CAP_MS = 5_000L
+
+        /** The waits between capacity retries; the last one repeats. Each is spread by +-20 % (refused viewers do not come back in step). */
+        private val CAPACITY_RETRY_BACKOFF_MS = longArrayOf(1_000L, 2_000L, 3_000L, 5_000L, 8_000L, 10_000L)
+        private const val CAPACITY_JITTER_MIN = 0.8
+        private const val CAPACITY_JITTER_SPAN = 0.4
 
         @Suppress("CyclomaticComplexMethod") // a table
         fun stepOf(kind: GravixJoinEventKind): Pair<String, LoggingLevel> = when (kind) {

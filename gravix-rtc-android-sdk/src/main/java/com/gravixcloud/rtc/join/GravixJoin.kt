@@ -24,6 +24,7 @@ import com.gravixcloud.rtc.GravixRtc
 import com.gravixcloud.rtc.regions.GravixRegionMeasurements
 import com.gravixcloud.rtc.regions.GravixRegionMedia
 import com.gravixcloud.rtc.room.Room
+import com.gravixcloud.rtc.room.RoomException
 import com.gravixcloud.rtc.util.GravixLogSink
 import com.gravixcloud.rtc.util.LoggingLevel
 import com.gravixcloud.rtc.util.launchFuture
@@ -40,6 +41,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executor
+import kotlin.random.Random
 
 /**
  * GRAVIX (0.1.2): fast joining with a few calls, for an app that drives [Room] -- the token cache, the tap-time join,
@@ -74,6 +76,8 @@ class GravixJoin private constructor(builder: Builder) {
     private val defaults: GravixJoinHooks = builder.defaults
     private val attachTimeoutMs: Long = builder.attachTimeoutMs
     private val abandonInBackground: Boolean = builder.abandonInBackground
+    private val retryCapacityRefusals: Boolean = builder.retryCapacityRefusals
+    internal val random: () -> Double = builder.random
     private val listener: GravixJoinListener? = builder.listener
     internal val logSink: GravixLogSink? = builder.logSink
     internal val callbackExecutor: Executor = builder.callbackExecutor ?: mainThreadExecutor()
@@ -199,6 +203,7 @@ class GravixJoin private constructor(builder: Builder) {
             attachTimeoutMs = attachTimeoutMs,
             abandonInBackground = hooks?.abandonInBackground ?: defaults.abandonInBackground ?: abandonInBackground,
             ownsRoom = createRoom == null && leave == null,
+            retryCapacityRefusals = retryCapacityRefusals,
         )
         // (the live handle of this session if another thread started it meanwhile, the previous session)
         val (raced, prev) = synchronized(lock) {
@@ -326,6 +331,7 @@ class GravixJoin private constructor(builder: Builder) {
             attachTimeoutMs = 0,
             abandonInBackground = false,
             ownsRoom = false,
+            retryCapacityRefusals = false,
         )
         synchronized(lock) {
             liveHandle = live[key]
@@ -431,6 +437,8 @@ class GravixJoin private constructor(builder: Builder) {
         internal var defaults: GravixJoinHooks = GravixJoinHooks.Builder().build()
         internal var attachTimeoutMs = DEFAULT_ATTACH_TIMEOUT_MS
         internal var abandonInBackground = true
+        internal var retryCapacityRefusals = false
+        internal var random: () -> Double = { Random.nextDouble() }
         internal var listener: GravixJoinListener? = null
         internal var logSink: GravixLogSink? = null
 
@@ -451,6 +459,20 @@ class GravixJoin private constructor(builder: Builder) {
          * False for an app that joins in the background on purpose (a call answered from a notification).
          */
         fun setAbandonInBackground(abandon: Boolean): Builder = apply { abandonInBackground = abandon }
+
+        /**
+         * Opt-in (0.3.1, default false): a join the server refuses because the app's owner is at its concurrent-user
+         * cap ([isCapacityRefusal]: "app user limit reached") is tried again silently on the same Room, waiting 1, 2,
+         * 3, 5, 8 s, then every 10 s (each +-20 %), until it connects, fails otherwise, or the join ends (left,
+         * abandoned, superseded, the attach timeout before a screen claimed it). The screen's attach just waits
+         * longer; no error is surfaced. The cap stays enforced on the server; "app plan limit reached" (billing) and
+         * every other error still fail at once. Step lines `capacityRetry n= in=` per wait and `capacityRetryOk
+         * after= waited=`. Each refused attempt still emits the Room's `RoomEvent.FailedToConnect` and
+         * `RoomEvent.Disconnected(JOIN_FAILURE)`. A connect hook must keep the Room and let the SDK's
+         * `RoomException.ConnectException` through (as the error, or in its cause chain); an error that drops it is
+         * not recognised. The Flutter SDK 0.7.2's `GravixJoin(retryCapacityRefusals: true)`.
+         */
+        fun setRetryCapacityRefusals(retry: Boolean): Builder = apply { retryCapacityRefusals = retry }
 
         /** Timing events of every join (on the main thread). */
         fun setListener(listener: GravixJoinListener): Builder = apply { this.listener = listener }
@@ -479,6 +501,22 @@ class GravixJoin private constructor(builder: Builder) {
     companion object {
         /** Long enough for a route with a gate or two before the screen; short enough that a forgotten join does not sit in a room. */
         const val DEFAULT_ATTACH_TIMEOUT_MS = 20_000L
+
+        private const val CAPACITY_REFUSAL_TEXT = "app user limit reached"
+
+        /**
+         * Whether [error] is the server's refusal at the app owner's concurrent-user cap ("app user limit reached",
+         * the validate answer of a refused WebSocket), as [error] or in its cause chain: what
+         * [Builder.setRetryCapacityRefusals] retries. Not the billing refusal ("app plan limit
+         * reached"): that one does not clear while the screen is open.
+         */
+        @JvmStatic
+        fun isCapacityRefusal(error: Throwable): Boolean =
+            generateSequence(error) { it.cause }.take(MAX_CAUSE_DEPTH).any {
+                it is RoomException.ConnectException && it.message?.contains(CAPACITY_REFUSAL_TEXT) == true
+            }
+
+        private const val MAX_CAUSE_DEPTH = 4
 
         private fun mainThreadExecutor(): Executor {
             val main = Handler(Looper.getMainLooper())

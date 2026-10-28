@@ -104,7 +104,8 @@ public final class com/gravixcloud/rtc/GravixRecoveryOptions {
 	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;J)V
 	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJ)V
 	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZ)V
-	public synthetic fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZZ)V
+	public synthetic fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZZILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Z
 	public final fun component10 ()Z
 	public final fun component11 ()Z
@@ -122,6 +123,7 @@ public final class com/gravixcloud/rtc/GravixRecoveryOptions {
 	public final fun component22 ()J
 	public final fun component23 ()J
 	public final fun component24 ()Z
+	public final fun component25 ()Z
 	public final fun component3 ()Ljava/lang/Long;
 	public final fun component4 ()Z
 	public final fun component5 ()Z
@@ -129,8 +131,8 @@ public final class com/gravixcloud/rtc/GravixRecoveryOptions {
 	public final fun component7 ()Z
 	public final fun component8 ()Z
 	public final fun component9 ()Ljava/lang/Long;
-	public final fun copy (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZ)Lcom/gravixcloud/rtc/GravixRecoveryOptions;
-	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/GravixRecoveryOptions;ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZILjava/lang/Object;)Lcom/gravixcloud/rtc/GravixRecoveryOptions;
+	public final fun copy (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZZ)Lcom/gravixcloud/rtc/GravixRecoveryOptions;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/GravixRecoveryOptions;ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZZILjava/lang/Object;)Lcom/gravixcloud/rtc/GravixRecoveryOptions;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getFailoverNeedsEvidence ()Z
 	public final fun getFreshPeerFailedGraceMs ()Ljava/lang/Long;
@@ -151,6 +153,7 @@ public final class com/gravixcloud/rtc/GravixRecoveryOptions {
 	public final fun getResumePrimaryDeadlineMs ()Ljava/lang/Long;
 	public final fun getResumeWaitsForLiveState ()Z
 	public final fun getRetrySameUrlFirst ()Z
+	public final fun getRetryServerRestart ()Z
 	public final fun getSameUrlRetryDialTimeoutMs ()Ljava/lang/Long;
 	public final fun getSignalDialCapMs ()Ljava/lang/Long;
 	public final fun getSilentHostFailFast ()Z
@@ -1726,6 +1729,7 @@ public final class com/gravixcloud/rtc/join/GravixJoin {
 	public final fun forgetAll ()V
 	public final fun getCurrent ()Lcom/gravixcloud/rtc/join/GravixPrejoin;
 	public final fun getTokens ()Lcom/gravixcloud/rtc/join/GravixJoinTokenProvider;
+	public static final fun isCapacityRefusal (Ljava/lang/Throwable;)Z
 	public final synthetic fun leave (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun leaveAsync ()Ljava/util/concurrent/CompletableFuture;
 	public final fun pending (Lcom/gravixcloud/rtc/join/GravixJoinRequest;)Lcom/gravixcloud/rtc/join/GravixPrejoin;
@@ -1746,9 +1750,11 @@ public final class com/gravixcloud/rtc/join/GravixJoin$Builder {
 	public final fun setDefaults (Lcom/gravixcloud/rtc/join/GravixJoinHooks;)Lcom/gravixcloud/rtc/join/GravixJoin$Builder;
 	public final fun setListener (Lcom/gravixcloud/rtc/join/GravixJoinListener;)Lcom/gravixcloud/rtc/join/GravixJoin$Builder;
 	public final fun setLogSink (Lcom/gravixcloud/rtc/util/GravixLogSink;)Lcom/gravixcloud/rtc/join/GravixJoin$Builder;
+	public final fun setRetryCapacityRefusals (Z)Lcom/gravixcloud/rtc/join/GravixJoin$Builder;
 }
 
 public final class com/gravixcloud/rtc/join/GravixJoin$Companion {
+	public final fun isCapacityRefusal (Ljava/lang/Throwable;)Z
 }
 
 public abstract interface class com/gravixcloud/rtc/join/GravixJoinConnect {

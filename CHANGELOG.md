@@ -2,6 +2,40 @@
 
 Upstream (LiveKit Android SDK) history up to the fork point: `doc/upstream/CHANGELOG.md`.
 
+## 0.3.1 (2026-10-28)
+
+Join fixes ported from the Flutter SDK 0.7.2. Additive API.
+
+### Fixed: a join that hit a server restart failed for good
+- A first connect whose last url answered the WebSocket with 502/503/504 and no reason text (the SFU restarting behind
+  its proxy, e.g. during a drain roll) dials that url again, at most twice, after 0.5 s and 1.5 s
+  (`GravixRecoveryOptions.retryServerRestart`, on by default; off in `UPSTREAM`). Field 2026-10-27 (dac1): such a join
+  failed in 0.1 s while the new server process was up a second later. A region failover still comes first; refusals
+  with a reason (401/403, "app user limit reached", "app plan limit reached") stay final. Step line
+  `[GravixJoin] joinRetry n= in= status=`.
+- Kotlin callers of `GravixRecoveryOptions.copy` recompile (a new trailing property); the Java constructors are kept.
+
+### Added: `GravixJoin.Builder.setRetryCapacityRefusals(true)` (opt-in, off by default)
+- A join the server refuses because the app owner is at its concurrent-user cap ("app user limit reached") is tried
+  again silently on the same Room, waiting 1, 2, 3, 5, 8 s, then every 10 s (each +-20 %), until it connects, fails
+  otherwise, or the join ends (left, abandoned, superseded, the attach timeout): the screen's `attach()` just waits
+  longer. The cap stays enforced on the server; "app plan limit reached" (billing) and every other error still fail at
+  once. `GravixJoin.isCapacityRefusal(e)`; a `connect` hook must keep the Room and let the SDK's `ConnectException`
+  through (as the error or its cause) for it to be retried.
+- Each refused attempt still emits the Room's `RoomEvent.FailedToConnect` and `RoomEvent.Disconnected(JOIN_FAILURE)`
+  to listeners bound in a `createRoom` hook.
+- Step lines `capacityRetry n= in=` per wait, `capacityRetryOk after= waited=` when it connects.
+
+### Added: subscriber answer timing lines
+- `[GravixPub] subOffer pc=sub#N received id=` and `subAnswer pc=sub#N <step> +<ms>ms` (setRemoteDescriptionDone,
+  createAnswerDone, setLocalDescriptionDone, answerSent, answerFailed), timed from the offer's arrival. Field
+  2026-10-27 (dac1): the SFU had its offer out in 0.2 s and the phone's answer arrived seconds later; nothing on the
+  phone said where.
+
+### Not ported: the standby upgrade floor (Flutter 0.7.2)
+- This SDK has no standby / pre-connect WebSocket (`GravixJoin.warm` fetches the token only), so there is no upgrade
+  wait to raise.
+
 ## 0.3.0 (2026-10-27)
 
 ### Added: on-device join-token signing

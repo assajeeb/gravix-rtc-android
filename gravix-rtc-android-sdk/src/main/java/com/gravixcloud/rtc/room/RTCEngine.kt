@@ -1605,17 +1605,30 @@ internal constructor(
         GravixPubLog.step(step, label, detail, at)
     }
 
+    /**
+     * GRAVIX (0.3.1): a subscriber offer -> answer step with the ms since the offer arrived ([offerNs]). Field
+     * 2026-10-27 (dac1): the SFU had its offer out in 0.2 s and the phone's answer arrived 2 s / 10.6 s later; nothing
+     * on the phone said where. The Flutter SDK 0.7.2's `subAnswer` lines.
+     */
+    private fun subAnswerStep(step: String, offerNs: Long) {
+        if (!GravixStepLogs.writes(GravixPubLog.level, LoggingLevel.INFO)) return
+        subLog("subAnswer", "$step +${(System.nanoTime() - offerNs) / 1_000_000}ms")
+    }
+
     override fun onServerOffer(sessionDescription: SessionDescription, offerId: Int) {
         GxLog.v { "received server offer: ${sessionDescription.type}, ${runBlocking { publisher?.signalingState() }}" }
+        val offerNs = System.nanoTime() // GRAVIX (0.3.1): per offer (renegotiations may overlap)
+        subLog("subOffer", "received id=$offerId")
         coroutineScope.launch {
             run {
                 when (val outcome = subscriber?.setRemoteDescription(sessionDescription, offerId).nullSafe()) {
                     is Either.Right -> {
                         GxLog.e { "error setting remote description for offer: ${GravixStepLogs.safeError(outcome.value)}" }
+                        subAnswerStep("answerFailed", offerNs)
                         return@launch
                     }
 
-                    else -> {}
+                    else -> subAnswerStep("setRemoteDescriptionDone", offerNs)
                 }
             }
 
@@ -1625,10 +1638,11 @@ internal constructor(
 
             val answer = run {
                 when (val outcome = subscriber?.withPeerConnection { createAnswer(MediaConstraints()) }.nullSafe()) {
-                    is Either.Left -> outcome.value
+                    is Either.Left -> outcome.value.also { subAnswerStep("createAnswerDone", offerNs) }
                     is Either.Right -> {
                         GxLog.e { "error creating answer: ${GravixStepLogs.safeError(outcome.value)}" }
                         subLog("answerCreate", "FAIL reason=${GravixStepLogs.reason(outcome.value)}")
+                        subAnswerStep("answerFailed", offerNs)
                         return@launch
                     }
                 }
@@ -1640,10 +1654,14 @@ internal constructor(
 
             run<Unit> {
                 when (val outcome = subscriber?.withPeerConnection { setLocalDescription(answer) }.nullSafe()) {
-                    is Either.Left -> subLog("setLocal", "answer ok mlines=${GravixStepLogs.mlines(answer.description)}")
+                    is Either.Left -> {
+                        subLog("setLocal", "answer ok mlines=${GravixStepLogs.mlines(answer.description)}")
+                        subAnswerStep("setLocalDescriptionDone", offerNs)
+                    }
                     is Either.Right -> {
                         GxLog.e { "error setting local description for answer: ${GravixStepLogs.safeError(outcome.value)}" }
                         subLog("setLocal", "answer FAIL reason=${GravixStepLogs.reason(outcome.value)}")
+                        subAnswerStep("answerFailed", offerNs)
                         return@launch
                     }
                 }
@@ -1654,6 +1672,7 @@ internal constructor(
             }
             subLog("answerSend", "id=$offerId", LoggingLevel.VERBOSE)
             client.sendAnswer(answer, offerId)
+            subAnswerStep("answerSent", offerNs)
         }
     }
 

@@ -174,6 +174,15 @@ constructor(
         private set
 
     /**
+     * GRAVIX (0.3.1): whether the last failed connect's validate answer carried reason text ("app user limit
+     * reached", ...). A gateway's 502/503/504 without it is the SFU restarting behind its proxy
+     * ([GravixRecoveryOptions.retryServerRestart][com.gravixcloud.rtc.GravixRecoveryOptions.retryServerRestart]).
+     */
+    @Volatile
+    internal var gravixLastFailureHadReason: Boolean = false
+        private set
+
+    /**
      * GRAVIX: whether the device has a network at all (for the failover's evidence): an active network exists. Not
      * the transport mapping (its UNKNOWN includes connected networks on unmapped transports), and an unknown answer
      * (no ConnectivityManager, no permission, a replaced NetworkInfo) is true: it must not block a failover.
@@ -253,6 +262,7 @@ constructor(
         gravixNextDialTimeoutMs = null
         gravixWsOpened = false
         gravixLastFailureStatus = null
+        gravixLastFailureHadReason = false
 
         // GRAVIX (signalDialCapMs): a fresh join on a slow path gets longer; a resume and a bounded retry do not
         val deadlineMs = gravixSignalDialCapMs?.takeIf { !options.reconnect && dialTimeout == null } ?: SIGNAL_CONNECT_TIMEOUT.toLong()
@@ -446,6 +456,7 @@ constructor(
                 if (!resp.isSuccessful) {
                     reason = body?.string()
                     gravixLastFailureStatus = resp.code // GRAVIX (region failover)
+                    gravixLastFailureHadReason = !reason.isNullOrBlank() // GRAVIX (0.3.1, retryServerRestart)
                 }
                 body?.close()
             }

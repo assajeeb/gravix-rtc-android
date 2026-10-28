@@ -106,6 +106,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -845,6 +846,7 @@ constructor(
 
             var nextUrl: String? = regionUrl ?: url
             regionUrl = null
+            var restartRetries = 0 // GRAVIX (0.3.1, retryServerRestart): per connect
 
             while (nextUrl != null) {
                 val connectUrl = nextUrl
@@ -876,6 +878,22 @@ constructor(
                             detail = "from=${GravixJoinLog.host(connectUrl)} to=${GravixJoinLog.host(nextUrl)} after=${GravixJoinLog.errorOf(e)}",
                         )
                         GxLog.d(e) { "Connection to ${GravixStepLogs.host(connectUrl)} failed, retrying with another region: ${GravixStepLogs.host(nextUrl)}" }
+                    } else if (
+                        GravixRecoveryOptions.isServerRestart(status, engine.client.gravixLastFailureHadReason) &&
+                        restartRetries < GravixRecoveryOptions.SERVER_RESTART_RETRY_DELAYS_MS.size &&
+                        engine.gravixRecovery.retryServerRestart
+                    ) {
+                        // GRAVIX (0.3.1, retryServerRestart): the last url's SFU is restarting behind its proxy (a
+                        // gateway error, no reason text): the same url again after a short wait
+                        val waitMs = GravixRecoveryOptions.SERVER_RESTART_RETRY_DELAYS_MS[restartRetries]
+                        restartRetries++
+                        GravixJoinLog.step(
+                            "joinRetry",
+                            gxKey,
+                            detail = "n=$restartRetries in=${waitMs}ms status=$status host=${GravixJoinLog.host(connectUrl)} (server restarting)",
+                        )
+                        delay(waitMs)
+                        nextUrl = connectUrl
                     } else {
                         throw e // rethrow since no more regions to try.
                     }
