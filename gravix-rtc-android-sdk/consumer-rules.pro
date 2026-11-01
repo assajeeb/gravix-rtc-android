@@ -20,6 +20,15 @@
 
 # WebRTC
 #########################################
+# Read by name in GxRecordStartGuard (a refused microphone start must not abort).
+-keepclassmembers class org.webrtc.audio.JavaAudioDeviceModule {
+    public final org.webrtc.audio.WebRtcAudioRecord audioInput;
+}
+-keepclassmembers class org.webrtc.audio.WebRtcAudioRecord {
+    private final org.webrtc.audio.JavaAudioDeviceModule$AudioRecordErrorCallback errorCallback;
+    private java.util.concurrent.atomic.AtomicBoolean nativeCalledStartRecording;
+}
+
 # Ensure JNI native method names and descriptors are preserved (Java -> native).
 -keepclasseswithmembernames,includedescriptorclasses class org.webrtc.** {
     native <methods>;

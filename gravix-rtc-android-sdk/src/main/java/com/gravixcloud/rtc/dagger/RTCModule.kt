@@ -22,9 +22,6 @@ import android.javax.sdp.SdpFactory
 import android.media.AudioAttributes
 import android.media.MediaRecorder
 import android.os.Build
-import dagger.Module
-import dagger.Provides
-import dagger.Reusable
 import com.gravixcloud.rtc.GravixRtc
 import com.gravixcloud.rtc.audio.AudioBufferCallbackDispatcher
 import com.gravixcloud.rtc.audio.AudioProcessingController
@@ -32,6 +29,7 @@ import com.gravixcloud.rtc.audio.AudioProcessorOptions
 import com.gravixcloud.rtc.audio.AudioRecordPrewarmer
 import com.gravixcloud.rtc.audio.AudioRecordSamplesDispatcher
 import com.gravixcloud.rtc.audio.CommunicationWorkaround
+import com.gravixcloud.rtc.audio.GxRecordStartGuard
 import com.gravixcloud.rtc.audio.JavaAudioRecordPrewarmer
 import com.gravixcloud.rtc.audio.NoAudioRecordPrewarmer
 import com.gravixcloud.rtc.e2ee.DataPacketCryptorManager
@@ -47,6 +45,9 @@ import com.gravixcloud.rtc.webrtc.peerconnection.RTCThreadToken
 import com.gravixcloud.rtc.webrtc.peerconnection.RTCThreadTokenImpl
 import com.gravixcloud.rtc.webrtc.peerconnection.executeBlockingOnRTCThread
 import com.gravixcloud.rtc.webrtc.peerconnection.executeOnRTCThread
+import dagger.Module
+import dagger.Provides
+import dagger.Reusable
 import org.webrtc.AudioProcessingFactory
 import org.webrtc.EglBase
 import org.webrtc.Logging
@@ -252,7 +253,10 @@ internal object RTCModule {
 
         moduleCustomizer?.invoke(builder)
         return builder.createAudioDeviceModule()
-            .apply { closeableManager.registerClosable { release() } }
+            .apply {
+                GxRecordStartGuard.installOn(this)
+                closeableManager.registerClosable { release() }
+            }
     }
 
     @Provides

@@ -2,6 +2,18 @@
 
 Upstream (LiveKit Android SDK) history up to the fork point: `doc/upstream/CHANGELOG.md`.
 
+## 0.3.2 (2026-11-02)
+
+Crash fix from the Flutter SDK 0.7.5. No API changes.
+
+### Fixed: crash after a refused microphone start
+- When Android refused to start the microphone, the next start aborted the app (SIGABRT at `jvm.cc:81` under
+  `AudioRecordJni::StartRecording`). That next start could come from a mic toggle or from the same negotiation, within
+  milliseconds, so the app could crash during a join.
+- The next start now retries instead. The microphone stays silent until it succeeds. An error callback set through the
+  audio device module customizer still receives each refusal. An audio device module the app supplies itself does not
+  get this fix.
+
 ## 0.3.1 (2026-10-28)
 
 Join fixes ported from the Flutter SDK 0.7.2. Additive API.
