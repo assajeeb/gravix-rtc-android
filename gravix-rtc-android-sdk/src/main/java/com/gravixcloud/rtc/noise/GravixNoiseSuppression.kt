@@ -172,8 +172,21 @@ object GravixNoiseSuppression {
         return true
     }
 
+    /**
+     * Tests: off in the mock tests. The setup runs on a real thread and this wait on the test's virtual clock, so a mic test
+     * otherwise depends on which comes first: the cause of intermittent test failures, 2026-11-05.
+     */
+    @Volatile
+    internal var gravixMicWaitsForConfigure = true
+
+    /** Tests: what [awaitConfigured] waits for. */
+    internal fun gravixPendingConfigureForTest(job: Job?) {
+        pendingConfigure = job
+    }
+
     /** The microphone waits (bounded) for a [configureInBackground] still running, so it starts with the right processing. */
     internal suspend fun awaitConfigured(timeoutMs: Long = 1000) {
+        if (!gravixMicWaitsForConfigure) return
         val j = pendingConfigure
         if (j == null || j.isCompleted) {
             log("micWait waited=0ms ready=${j != null}")

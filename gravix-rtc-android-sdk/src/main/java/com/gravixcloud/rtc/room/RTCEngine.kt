@@ -30,6 +30,8 @@ import com.gravixcloud.rtc.e2ee.E2EEManager
 import com.gravixcloud.rtc.e2ee.EncryptedPacket
 import com.gravixcloud.rtc.events.DisconnectReason
 import com.gravixcloud.rtc.events.convert
+import com.gravixcloud.rtc.regions.GravixRegionLog
+import com.gravixcloud.rtc.regions.GravixRegionMedia
 import com.gravixcloud.rtc.regions.GravixRegionProbeClient
 import com.gravixcloud.rtc.room.network.DefaultReconnectPolicy
 import com.gravixcloud.rtc.room.network.ReconnectContext
@@ -110,6 +112,7 @@ import org.webrtc.RtpTransceiver
 import org.webrtc.RtpTransceiver.RtpTransceiverInit
 import org.webrtc.SessionDescription
 import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
@@ -201,8 +204,41 @@ internal constructor(
 
     internal var reconnectPolicy: ReconnectPolicy = DefaultReconnectPolicy()
 
+    /** GRAVIX (2026-11-04): the kind of each pending AddTrack, so a refusal of one medium ends only that medium's. */
+    private val pendingTrackKinds = HashMap<String, GravixcloudModels.TrackType>()
+
     private val pendingTrackResolvers: MutableMap<String, Continuation<GravixcloudModels.TrackInfo>> =
         mutableMapOf()
+
+    /** GRAVIX (2026-11-05): from a full reconnect attempt's start until its new session is configured: nothing to publish on. */
+    @Volatile
+    private var gravixBetweenSessions = false
+
+    /** GRAVIX (2026-11-05): counts full reconnect attempts. A publish that sees it change lost the session it started on. */
+    private val gravixSessionCounter = AtomicInteger(0)
+
+    internal val gravixSessionGen: Int
+        get() = gravixSessionCounter.get()
+
+    internal val gravixNoSessionNow: Boolean
+        get() = gravixBetweenSessions
+
+    /** GRAVIX (2026-11-05): reconnects in a row that followed a signal drop during the republish. */
+    private var gravixFollowUps = 0
+
+    /** GRAVIX (2026-11-05): the post-reconnect step (the republish) is running: a reconnect can't start until it ends. */
+    @Volatile
+    private var gravixInPostReconnect = false
+
+    /** GRAVIX (2026-11-05): the signal went during that step. What it still holds goes to the full reconnect following it. */
+    @Volatile
+    internal var gravixPostReconnectInterrupted = false
+        private set
+
+    /** GRAVIX (2026-11-05): the url the last join dialled, for telling a rejoin on another server. */
+    @Volatile
+    internal var gravixDialUrl: String? = null
+        private set
 
     internal var regionUrlProvider: RegionUrlProvider? = null
 
@@ -573,6 +609,7 @@ internal constructor(
         if (connectionState == ConnectionState.DISCONNECTED) {
             connectionState = ConnectionState.CONNECTING
         }
+        gravixDialUrl = url
         val joinResponse = client.join(url, token, options, roomOptions)
         ensureActive()
 
@@ -584,6 +621,7 @@ internal constructor(
 
         configure(joinResponse, options)
         gravixIceWatch.start(this@RTCEngine.coroutineScope) // GRAVIX (iceTransportWatchMs): no-op when off or running
+        gravixBetweenSessions = false // GRAVIX (2026-11-05): a publish has a session and a publisher connection again
 
         // create offer
         if (!isSubscriberPrimary || joinResponse.fastPublish) {
@@ -703,6 +741,8 @@ internal constructor(
         stream: String?,
         builder: GravixcloudRtc.AddTrackRequest.Builder = GravixcloudRtc.AddTrackRequest.newBuilder(),
     ): GravixcloudModels.TrackInfo {
+        // GRAVIX (2026-11-05): the AddTrack would go to a socket that is closing or closed
+        if (gravixBetweenSessions) throw GravixSessionReplacedException("addTrack $cid: no session, a full reconnect is under way")
         synchronized(pendingTrackResolvers) {
             if (pendingTrackResolvers[cid] != null) {
                 throw TrackException.DuplicateTrackException("Track with same ID $cid has already been published!")
@@ -714,11 +754,13 @@ internal constructor(
             suspendCancellableCoroutine { cont ->
                 synchronized(pendingTrackResolvers) {
                     pendingTrackResolvers[cid] = cont
+                    pendingTrackKinds[cid] = kind
                 }
                 cont.invokeOnCancellation {
                     synchronized(pendingTrackResolvers) {
                         if (pendingTrackResolvers[cid] === cont) {
                             pendingTrackResolvers.remove(cid)
+                            pendingTrackKinds.remove(cid)
                         }
                     }
                 }
@@ -766,6 +808,7 @@ internal constructor(
         }
         GxLog.v { "Close - $reason" }
         isClosed = true
+        gravixFollowUps = 0 // a new connect on this Room starts from 0
         reconnectingJob?.cancel()
         reconnectingJob = null
         coroutineScope.close()
@@ -779,6 +822,7 @@ internal constructor(
         connectedUrl = null // GRAVIX
         endSignalSession()
         abortPendingPublishTracks()
+        gravixBetweenSessions = false
         closeResources(reason)
         gravixIceWatch.stop() // GRAVIX (iceTransportWatchMs): after the PCs are gone; late callbacks are ignored
         connectionState = ConnectionState.DISCONNECTED
@@ -834,14 +878,94 @@ internal constructor(
         signalSessionState = SignalSessionState(ended = true)
     }
 
-    private fun abortPendingPublishTracks() {
+    /**
+     * [fullReconnectFollows] GRAVIX (2026-11-05): the session is going for good, so the publish follows the reconnect. A
+     * resume keeps the publisher connection and the transceiver the publish made, so it fails as before.
+     */
+    private fun abortPendingPublishTracks(fullReconnectFollows: Boolean = false) {
+        val follow = fullReconnectFollows && gravixRecovery.publishFollowsReconnect
         synchronized(pendingTrackResolvers) {
-            pendingTrackResolvers.values.forEach {
-                it.resumeWithException(TrackException.PublishException("pending track aborted"))
-            }
+            // emptied first: a resumed publish can run on inline, and end up back here
+            val pending = pendingTrackResolvers.values.toList()
             pendingTrackResolvers.clear()
+            pendingTrackKinds.clear()
+            pending.forEach {
+                val aborted = if (follow) {
+                    GravixSessionReplacedException("pending track aborted")
+                } else {
+                    TrackException.PublishException("pending track aborted")
+                }
+                it.resumeWithException(aborted)
+            }
         }
     }
+
+    /**
+     * GRAVIX (2026-11-04): the server refused [kind] on this node (`media_not_allowed`), so its pending AddTracks will
+     * never be answered: they end now instead of at the 20 s deadline of [addTrack], which would keep the source's
+     * publish lock from the republish after the media move. The number ended.
+     */
+    internal fun gravixAbortPendingPublishes(kind: GravixcloudModels.TrackType): Int {
+        synchronized(pendingTrackResolvers) {
+            val cids = pendingTrackResolvers.keys.filter { pendingTrackKinds[it] == kind }
+            for (cid in cids) {
+                pendingTrackKinds.remove(cid)
+                pendingTrackResolvers.remove(cid)?.resumeWithException(TrackException.PublishException(GravixRegionMedia.MEDIA_NOT_ALLOWED))
+            }
+            return cids.size
+        }
+    }
+
+    /**
+     * GRAVIX (2026-11-05, Flutter 0.8.2): this session is being replaced. Pending AddTracks will never be answered, so
+     * they end now with [GravixSessionReplacedException] instead of holding their publish lock for the 20 s deadline,
+     * and their publishes follow the reconnect ([GravixRecoveryOptions.publishFollowsReconnect]).
+     */
+    private fun gravixSessionReplaced() {
+        gravixSessionCounter.incrementAndGet()
+        if (!gravixRecovery.publishFollowsReconnect) return
+        gravixBetweenSessions = true
+        synchronized(pendingTrackResolvers) {
+            val ended = pendingTrackResolvers.size
+            pendingTrackResolvers.keys.toList().forEach { cid ->
+                pendingTrackResolvers.remove(cid)?.resumeWithException(GravixSessionReplacedException("addTrack $cid: the session was replaced"))
+            }
+            pendingTrackKinds.clear()
+            if (ended > 0) GravixRegionLog.step("mediaPublishInterrupted", "count=$ended cause=full-reconnect")
+        }
+    }
+
+    /** GRAVIX (2026-11-05): the signal went during the republish. A server that kills every session there isn't chased for ever. */
+    private fun gravixFollowUpReconnect() {
+        if (++gravixFollowUps > MAX_FOLLOW_UP_RECONNECTS) {
+            gravixFollowUps = 0
+            GravixRegionLog.step("mediaRepublish", "fail reason=session-kept-going-during-republish cause=follow-up-limit")
+            // as a reconnect that gives up does, from a job: this runs in the last job's completion
+            coroutineScope.launch {
+                close("Failed reconnecting")
+                listener?.onEngineDisconnected(DisconnectReason.UNKNOWN_REASON)
+            }
+            return
+        }
+        fullReconnectOnNext = true
+        gravixReconnect(CAUSE_SIGNAL)
+    }
+
+    /** GRAVIX (2026-11-05): until no reconnect runs, its republish included. Ends at once when the engine closes. */
+    internal suspend fun gravixAwaitReconnectEnd() {
+        while (true) {
+            val job = reconnectingJob?.takeIf { it.isActive } ?: return
+            job.join()
+        }
+    }
+
+    /** GRAVIX (2026-11-04): a reconnect is running. During a resume [Room.state] stays CONNECTED. */
+    internal val gravixReconnecting: Boolean
+        get() = reconnectingJob?.isActive == true
+
+    /** Tests: [gravixRestartConnection] answers "a reconnect is under way" while this says true. */
+    @VisibleForTesting
+    internal var gravixRestartBusyForTest: (() -> Boolean)? = null
 
     /**
      * GRAVIX (2026-10-21, per-region media): a full reconnect whose first attempt dials [url] (a region the SDK picked,
@@ -851,6 +975,7 @@ internal constructor(
      */
     @Synchronized
     internal fun gravixRestartConnection(url: String): Job? {
+        if (gravixRestartBusyForTest?.invoke() == true) return null
         if (reconnectingJob?.isActive == true || isClosed || sessionUrl == null || sessionToken == null) return null
         gravixRestartUrl = url
         fullReconnectOnNext = true
@@ -988,7 +1113,9 @@ internal constructor(
                 }
 
                 GxLog.i { "Reconnecting to signal, attempt ${retries + 1}" }
-                delay(if (gravixWaitedForNetwork) 0 else startDelay.inWholeMilliseconds) // GRAVIX: back now: no back-off
+                // GRAVIX: back now: no back-off. A media move's first dial has nothing to back off from: nothing failed.
+                val gravixNoBackOff = gravixWaitedForNetwork || (retries == 0 && cause == CAUSE_MEDIA_REFUSAL && GravixRegionMedia.autoDetect)
+                delay(if (gravixNoBackOff) 0 else startDelay.inWholeMilliseconds)
 
                 val isFullReconnect = when (reconnectType) {
                     // full reconnect after first try.
@@ -1012,6 +1139,7 @@ internal constructor(
                     GxLog.v { "Attempting full reconnect." }
                     gravixIceWatch.resetSession() // GRAVIX (iceTransportWatchMs): a new session, new transports
                     gravixFullRejoinRunning = true // GRAVIX (freshPeerFailedGraceMs)
+                    gravixSessionReplaced()
 
                     if (!hasReconnectedOnce) {
                         hasReconnectedOnce = true
@@ -1157,7 +1285,13 @@ internal constructor(
                     connectedUrl = url
                     if (regionStrategy != null || (gravixTarget != null && gravixFullFirst)) sessionUrl = url
                     client.onPCConnected()
-                    listener?.onPostReconnect(isFullReconnect)
+                    gravixInPostReconnect = gravixRecovery.publishFollowsReconnect
+                    try {
+                        listener?.onPostReconnect(isFullReconnect)
+                    } finally {
+                        gravixInPostReconnect = false
+                    }
+                    if (!gravixPostReconnectInterrupted) gravixFollowUps = 0
                     return@launch
                 }
 
@@ -1178,6 +1312,11 @@ internal constructor(
             gravixFullRejoinRunning = false // GRAVIX
             if (reconnectingJob == job) {
                 reconnectingJob = null
+            }
+            // GRAVIX (2026-11-05): nobody else starts this one: gravixReconnect ignored the socket's close while the job ran
+            if (gravixPostReconnectInterrupted) {
+                gravixPostReconnectInterrupted = false
+                if (!isClosed) gravixFollowUpReconnect()
             }
         }
     }
@@ -1706,6 +1845,7 @@ internal constructor(
 
         GxLog.v { "local track published $cid" }
         val cont = synchronized(pendingTrackResolvers) {
+            pendingTrackKinds.remove(cid)
             pendingTrackResolvers.remove(cid)
         }
         if (cont == null) {
@@ -1730,9 +1870,16 @@ internal constructor(
     override fun onClose(reason: String, code: Int) {
         GxLog.i { "received close event: $reason, code: $code" }
         gravixEndReconnectWait?.invoke("the signal socket closed ($code)") // GRAVIX (leaveAbortsResumeWait / restartAbortsOnSignalLoss)
+        if (gravixInPostReconnect) gravixPostReconnectInterrupted = true
         endSignalSession()
-        abortPendingPublishTracks()
-        gravixReconnect(CAUSE_SIGNAL)
+        if (fullReconnectOnNext || reconnectType == ReconnectType.FORCE_FULL_RECONNECT) {
+            // the job first: an aborted publish waits for it
+            gravixReconnect(CAUSE_SIGNAL)
+            abortPendingPublishTracks(fullReconnectFollows = true)
+        } else {
+            abortPendingPublishTracks()
+            gravixReconnect(CAUSE_SIGNAL)
+        }
     }
 
     override fun onRemoteMuteChanged(trackSid: String, muted: Boolean) {
@@ -1747,11 +1894,19 @@ internal constructor(
         listener?.onConnectionQuality(updates)
     }
 
+    /** GRAVIX (2026-11-05): what a Leave means for pending publishes and for a republish that is running. */
+    private fun gravixOnLeaveDuringPublish(leave: LeaveRequest) {
+        val resume = leave.action == LeaveRequest.Action.RESUME
+        val full = !resume && (leave.action == LeaveRequest.Action.RECONNECT || leave.canReconnect)
+        if (gravixInPostReconnect && (resume || full)) gravixPostReconnectInterrupted = true
+        endSignalSession()
+        abortPendingPublishTracks(fullReconnectFollows = full)
+    }
+
     override fun onLeave(leave: LeaveRequest) {
         GxLog.d { "leave request received: reason = ${leave.reason.name}" }
 
-        endSignalSession()
-        abortPendingPublishTracks()
+        gravixOnLeaveDuringPublish(leave)
 
         if (leave.hasRegions()) {
             regionUrlProvider?.setServerReportedRegions(RegionSettings.fromProto(leave.regions))
@@ -2253,3 +2408,8 @@ internal fun GravixcloudModels.DataPacket.Builder.setFromEncryptedPayload(payloa
         }
     }
 }
+
+/** GRAVIX (2026-11-05): a publish lost its session to a full reconnect. Never reaches the app. */
+internal class GravixSessionReplacedException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+private const val MAX_FOLLOW_UP_RECONNECTS = 5

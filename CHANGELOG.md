@@ -2,6 +2,101 @@
 
 Upstream (LiveKit Android SDK) history up to the fork point: `doc/upstream/CHANGELOG.md`.
 
+## 0.4.0 (2026-11-05)
+
+Audio-only regions, ported from the Flutter SDK 0.8.0 to 0.8.3. The default join changes: nothing declared now lands on
+the fastest region, audio-only ones included. Additive API, but Kotlin callers of `GravixRecoveryOptions.copy` recompile
+(new trailing properties; the Java constructors are kept).
+
+### Fixed
+- The microphone is no longer lost when a region move, or any full reconnect, starts just as it is published. A publish
+  that a full reconnect interrupts, or that starts between two sessions, goes out on the new session, with no app action,
+  and the call answers with that. A mute during the move wins. Before, the app could say the mic was on with no
+  publication behind it. Rollback: `GravixRecoveryOptions.publishFollowsReconnect = false`.
+- A track that reaches the new session before the reconnect's republish is kept. Before, the republish took that
+  publication down and sent the same track again; the SFU doesn't answer that, so after the 20 s publish deadline the mic
+  was stopped. Rollback: `GravixRecoveryOptions.republishKeepsNewSessionTracks = false`.
+- What landed on a session that a later attempt of the same reconnect replaced is republished too.
+- A session that sees video in the room while a reconnect holds the engine, or before it is connected, keeps trying to move
+  for up to 60 s, with the region its first try chose. Before, it gave up and the viewer stayed on an audio-only region
+  with no video.
+
+### Changed: participants across a full reconnect
+- Remote participants are kept across a full reconnect: the same objects and no `ParticipantDisconnected`. Before, everyone
+  was reported as left on every full reconnect, and those back in the JoinResponse were not announced again. Tracks are
+  unsubscribed and arrive again on the same publications.
+- A participant the new JoinResponse doesn't name gets a grace before being reported as left: 5 s on the same server
+  (`rejoinAbsentGraceMs`), 35 s after a move to another server (`rejoinAbsentMoveGraceMs`), where the room may be new. Media
+  arriving proves they are there. One who was dropped and returns is subscribed to again.
+- Rollback: `GravixRecoveryOptions.keepParticipantsOnRejoin = false`.
+
+### Fixed: found by review before release
+- A camera whose enable failed, or that was left on in an earlier session, is no longer turned on by a later move.
+- A camera turned off while its move-first runs is not published, and the camera isn't opened until the move is done.
+- A mute while the reconnect's republish is out now wins. An enable in that window waits for the republish instead of
+  stopping the track it uses.
+- The signal dropping during the republish no longer loses what it holds: the next full reconnect publishes it.
+- What the app chose for a kept participant's tracks (enabled, quality, a subscription) goes to the new session.
+- An unmute during a network outage reaches the publication (a regression in earlier 0.4.0 builds, never released).
+- A rejoin within 35 s of a move keeps the long grace. A direct or server mute of the camera stops a later move turning it
+  on. Reconnects that follow a signal drop during the republish stop after 5 in a row, and the room disconnects.
+- An enable or disable still waiting when the session was left, or when a later call changed the answer, doesn't take effect.
+  A camera or mic asked for with no session opens nothing.
+- Off, on, off during a reconnect ends off; an enable waiting on a reconnect that ends in a leave opens nothing.
+- A kept participant who arrives after the JoinResponse gets their subscriptions restored, and one dropped by the grace
+  who comes back keeps what the app chose.
+- `publication.muted = false` counts as turning the source on again for the next reconnect.
+- A move with a measured target no longer needs the region list. A camera-on move no longer notes the region as refusing.
+- Crash, from the upstream base: a backup codec's AddTrack ending with an error (its deadline, a closing socket) was an
+  uncaught exception.
+
+### Known limit
+- A camera or mic turned off during a reconnect sends nothing, but its capture runs until the reconnect's republish closes
+  it: the camera light stays on until the reconnect ends.
+
+### Rollback: back to 0.3.x
+`GravixRegionMedia.autoDetect = false` and `room.gravixRecovery = GravixRecoveryOptions.LIKE_0_3`. The preset turns off only
+what 0.4.0 added; the recovery 0.3.x had stays on (unlike `UPSTREAM`). With `autoDetect` off nothing moves first and the
+server is asked, as before. These stay in any case, with no switch: a failed or old camera enable isn't turned on later, the
+backup codec crash fix, and republishing what landed on a replaced attempt.
+
+### Changed: which region a move goes to
+- When the fastest measured region is audio-only, the other video regions are measured too, in the background: never on the
+  join path, at most once per region-list lifetime and network, with the same budget. So a move to video really goes to the
+  nearest video region.
+- A move now goes to the region video joins use, with its hysteresis, so two near-equal regions don't flip between steps. A
+  `[GravixRegion] mediaTarget` log line says why it was chosen.
+
+### Changed: rejoining a room
+- A room is remembered as having video only if it still had video when the session left (remote video or your own camera),
+  and for 10 minutes at most. Rejoining a room with no video goes to the fastest region by the normal path; rejoining one
+  that still has video goes straight to a video region.
+- A muted camera no longer counts as video in the room: nobody moves for it until it is unmuted.
+
+### Changed: turning video on from an audio-only region moves first
+- Turning on the camera or a screen share on a region known not to carry video no longer tries the publish there. The
+  session moves once to the fastest measured region that carries video (log `mediaFailover ... cause=camera-on` or
+  `cause=screen-on`), then publishes. `setCameraEnabled` returns when that is done: true when the camera is live.
+- With no region carrying video, a failed move, or `mediaRefusalFailover` off, it returns false at once.
+- A server refusal (`media_not_allowed`, reached with a stale region list) now ends the publish at once, moves, and
+  `setCameraEnabled` answers with the republish. Before, the first camera RTP came about 20.8 s after the call (the
+  20 s `addTrack` deadline held the publish lock), and the call returned false although the camera came up.
+
+### Changed: audio-only regions need no declaration (auto-detect)
+Ported from the Flutter SDK 0.8.0.
+
+- A join with no `media` now goes to the fastest region, audio-only ones included. Nothing is asked of the server
+  first, so joins are not slower, and tokens are unchanged.
+- If the room carries video, at join or later, the session moves once to the fastest measured region that carries
+  video. Before, someone watching on such a region got no video and wasn't told.
+- A room seen with video goes straight to a region that carries video for as long as the app process runs. Nothing is
+  stored.
+- `media` stays optional. `GravixRoomMedia.VIDEO` or `.AUDIO` decides where the join lands first; a session on a region
+  without video still moves once if the room carries video.
+- `GravixRegionMedia.joinMedia()` with nothing declared now returns `AUDIO`, with step line `media=audio cause=auto`.
+- Rollback: set `GravixRegionMedia.autoDetect = false` before the first join for the old behaviour, where no `media`
+  means video.
+
 ## 0.3.2 (2026-11-02)
 
 Crash fix from the Flutter SDK 0.7.5. No API changes.

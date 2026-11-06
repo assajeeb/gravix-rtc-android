@@ -50,8 +50,10 @@ class LocalTrackPublication(
             participant.engine.updateMuteStatus(sid, muted)
 
             if (muted) {
+                participant.gravixNoteMuted(source)
                 participant.onTrackMuted(this)
             } else {
+                participant.gravixNoteUnmuted(source)
                 participant.onTrackUnmuted(this)
             }
         }

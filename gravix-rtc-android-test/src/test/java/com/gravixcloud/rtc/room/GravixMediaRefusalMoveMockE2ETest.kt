@@ -31,8 +31,10 @@ import com.gravixcloud.rtc.test.mock.MockWebSocket
 import com.gravixcloud.rtc.test.mock.TestData
 import com.gravixcloud.rtc.test.mock.camera.MockCameraProvider
 import com.gravixcloud.rtc.util.GravixLogSink
+import gravixcloud.GravixcloudModels
 import gravixcloud.GravixcloudRtc
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import org.junit.After
@@ -141,7 +143,7 @@ class GravixMediaRefusalMoveMockE2ETest : MockE2ETest() {
     fun theExactSfuRefusalMovesTheSessionOnceToTheNextRegionTakingVideo() = runTest {
         connect(join())
         assertEquals("blr1", room.connectedRegion)
-        assertEquals(GravixRoomMedia.VIDEO, room.gravixJoinMedia)
+        assertEquals("nothing declared", GravixRoomMedia.AUDIO, room.gravixJoinMedia)
         seedRegionList()
         val before = wsFactory.ws
 
@@ -187,6 +189,221 @@ class GravixMediaRefusalMoveMockE2ETest : MockE2ETest() {
         assertTrue(media.toString(), "[GravixRegion] mediaRepublish camera start region=sgp1" in media)
         assertTrue(media.toString(), "[GravixRegion] mediaRepublish camera ok" in media)
         assertTrue(room.localParticipant.getTrackPublication(com.gravixcloud.rtc.room.track.Track.Source.CAMERA) != null)
+    }
+
+    /** blr1 takes the camera's AddTrack and answers nothing yet: what the SFU does before its refusal arrives. */
+    private fun holdVideoAddTracks(): MutableList<Any> {
+        val held = Collections.synchronizedList(mutableListOf<Any>())
+        val first = wsFactory.ws
+        wsFactory.registerSignalRequestHandler { r ->
+            val hold = r.hasAddTrack() && r.addTrack.type == GravixcloudModels.TrackType.VIDEO && wsFactory.ws === first
+            if (hold) held.add(r.addTrack.cid)
+            hold
+        }
+        return held
+    }
+
+    private fun grantCamera() {
+        MockCameraProvider.register()
+        shadowOf(context as Application).grantPermissions(Manifest.permission.CAMERA)
+    }
+
+    /** Owner 2026-11-04: on a region known not to carry video the session moves first; nothing is tried there. */
+    @Test
+    fun aCameraOnARegionWithoutVideoMovesFirstAndPublishesThere() = runTest {
+        connect(join())
+        seedRegionList()
+        grantCamera()
+        val held = holdVideoAddTracks()
+        val before = wsFactory.ws
+        var enabled: Boolean? = null
+        val enable = launch { enabled = room.localParticipant.setCameraEnabled(true) }
+        nextDial(before)
+        assertEquals("no publish was tried on blr1", 0, held.size)
+        succeedJoin()
+        settle()
+        assertTrue("the enable still waits; ${mediaLines()}", enable.isCompleted)
+        assertEquals(true, enabled)
+        assertEquals(sgp, room.connectedUrl)
+        assertTrue(room.localParticipant.getTrackPublication(com.gravixcloud.rtc.room.track.Track.Source.CAMERA) != null)
+        assertTrue(mediaLines().toString(), "[GravixRegion] mediaFailover media=video from=blr1 -> sgp1 reason=moved cause=camera-on" in mediaLines())
+        assertFalse(mediaLines().toString(), mediaLines().any { it.startsWith("[GravixRegion] mediaRepublish") })
+    }
+
+    @Test
+    fun aMediaMoveDialsWithoutTheFirstRetryDelay() = runTest {
+        connect(join())
+        seedRegionList()
+        grantCamera()
+        val before = wsFactory.ws
+        val enable = launch { room.localParticipant.setCameraEnabled(true) }
+        val startedAt = testScheduler.currentTime
+        repeat(400) {
+            if (wsFactory.ws === before) {
+                Thread.sleep(2)
+                testScheduler.runCurrent()
+            }
+        }
+        assertTrue("no dial without advancing the clock", wsFactory.ws !== before)
+        assertEquals("no back-off before the first dial", startedAt, testScheduler.currentTime)
+        succeedJoin()
+        settle()
+        enable.join()
+    }
+
+    @Test
+    fun aCameraWithNoRegionCarryingVideoFailsAtOnceWithoutTrying() = runTest {
+        directory(blrMedia = listOf("audio"), others = listOf("audio"))
+        connect(join())
+        seedRegionList()
+        grantCamera()
+        val held = holdVideoAddTracks()
+        val before = wsFactory.ws
+        var enabled: Boolean? = null
+        val startedAt = testScheduler.currentTime
+        val enable = launch { enabled = room.localParticipant.setCameraEnabled(true) }
+        settle()
+        assertTrue("still waiting ${testScheduler.currentTime - startedAt}ms", enable.isCompleted)
+        assertEquals(false, enabled)
+        assertEquals(0, held.size)
+        assertSame(before, wsFactory.ws)
+        assertTrue(mediaLines().toString(), mediaLines().any { it.endsWith("stay reason=no-region-allows cause=camera-on") })
+    }
+
+    @Test
+    fun optionOffOnARegionWithoutVideoFailsAtOnceWithoutTrying() = runTest {
+        room.gravixRecovery = GravixRecoveryOptions(mediaRefusalFailover = false)
+        connect(join())
+        seedRegionList()
+        grantCamera()
+        val held = holdVideoAddTracks()
+        val before = wsFactory.ws
+        var enabled: Boolean? = null
+        val enable = launch { enabled = room.localParticipant.setCameraEnabled(true) }
+        settle()
+        assertTrue(enable.isCompleted)
+        assertEquals(false, enabled)
+        assertEquals(0, held.size)
+        assertSame(before, wsFactory.ws)
+    }
+
+    @Test
+    fun aRegionOfUnknownMediaPublishesAsToday() = runTest {
+        directory(blrMedia = null)
+        connect(join())
+        seedRegionList()
+        grantCamera()
+        val before = wsFactory.ws
+        assertEquals(true, room.localParticipant.setCameraEnabled(true))
+        assertSame("no move", before, wsFactory.ws)
+    }
+
+    @Test
+    fun aScreenShareOnARegionWithoutVideoMovesFirstToo() = runTest {
+        connect(join())
+        seedRegionList()
+        val held = holdVideoAddTracks()
+        val before = wsFactory.ws
+        val track = com.gravixcloud.rtc.room.track.LocalVideoTrack(
+            capturer = com.gravixcloud.rtc.test.mock.MockVideoCapturer(),
+            source = org.mockito.Mockito.mock(org.webrtc.VideoSource::class.java),
+            name = "",
+            options = com.gravixcloud.rtc.room.track.LocalVideoTrackOptions(
+                isScreencast = true,
+                deviceId = null,
+                position = null,
+                captureParams = com.gravixcloud.rtc.room.track.VideoCaptureParameter(width = 1280, height = 720, maxFps = 15),
+            ),
+            rtcTrack = com.gravixcloud.rtc.test.mock.MockVideoStreamTrack(),
+            peerConnectionFactory = component.peerConnectionFactory(),
+            context = context,
+            eglBase = com.gravixcloud.rtc.test.mock.MockEglBase(),
+            defaultsManager = DefaultsManager(),
+            trackFactory = org.mockito.Mockito.mock(com.gravixcloud.rtc.room.track.LocalVideoTrack.Factory::class.java),
+            rtcThreadToken = com.gravixcloud.rtc.test.mock.MockRTCThreadToken(),
+        )
+        var published: Boolean? = null
+        val publish = launch { published = room.localParticipant.publishVideoTrack(track) }
+        nextDial(before)
+        assertEquals(0, held.size)
+        succeedJoin()
+        settle()
+        assertTrue(publish.isCompleted)
+        assertEquals(true, published)
+        assertTrue(mediaLines().toString(), "[GravixRegion] mediaFailover media=video from=blr1 -> sgp1 reason=moved cause=screen-on" in mediaLines())
+    }
+
+    /** The safety net (a stale region list). Field 2026-11-04: first camera RTP 20.8 s after the enable, which returned false. */
+    @Test
+    fun aRefusalOnAStaleListEndsThePublishAtOnceAndTheEnableReturnsTheRepublish() = runTest {
+        directory(blrMedia = null)
+        connect(join())
+        seedRegionList()
+        grantCamera()
+        val held = holdVideoAddTracks()
+        val before = wsFactory.ws
+        var enabled: Boolean? = null
+        val enable = launch { enabled = room.localParticipant.setCameraEnabled(true) }
+        settle()
+        assertEquals("the AddTrack went out and is unanswered", 1, held.size)
+        val refusedAt = testScheduler.currentTime
+        refuse()
+        nextDial(before)
+        succeedJoin()
+        settle()
+        val took = testScheduler.currentTime - refusedAt
+        assertTrue("the enable still waits ${took}ms after the refusal; ${mediaLines()}", enable.isCompleted)
+        assertTrue("took $took ms: the addTrack deadline is 20 s", took < 20_000)
+        assertEquals("the republish is the enable's answer", true, enabled)
+        assertTrue(room.localParticipant.getTrackPublication(com.gravixcloud.rtc.room.track.Track.Source.CAMERA) != null)
+        assertTrue(mediaLines().toString(), "[GravixRegion] mediaRepublish camera ok" in mediaLines())
+    }
+
+    @Test
+    fun aRefusalWithOptionOffFailsAtOnce() = runTest {
+        room.gravixRecovery = GravixRecoveryOptions(mediaRefusalFailover = false)
+        directory(blrMedia = null)
+        connect(join())
+        seedRegionList()
+        grantCamera()
+        val held = holdVideoAddTracks()
+        val before = wsFactory.ws
+        var enabled: Boolean? = null
+        val enable = launch { enabled = room.localParticipant.setCameraEnabled(true) }
+        settle()
+        assertEquals(1, held.size)
+        refuse()
+        settle()
+        assertTrue("the option off must not sit out the 20 s", enable.isCompleted)
+        assertEquals(false, enabled)
+        assertSame(before, wsFactory.ws)
+    }
+
+    @Test
+    fun aVideoRefusalLeavesAPendingMicrophonePublishAlone() = runTest {
+        directory(blrMedia = listOf("audio"), others = listOf("audio")) // no move: only the abort is under test
+        connect(join())
+        seedRegionList()
+        val engine = component.rtcEngine()
+        val audioHeld = Collections.synchronizedList(mutableListOf<String>())
+        wsFactory.registerSignalRequestHandler { r ->
+            val hold = r.hasAddTrack() && r.addTrack.type == GravixcloudModels.TrackType.AUDIO
+            if (hold) audioHeld.add(r.addTrack.cid)
+            hold
+        }
+        val mic = async { runCatching { engine.addTrack("mic-cid", "mic", GravixcloudModels.TrackType.AUDIO, null) } }
+        settle()
+        assertEquals(listOf("mic-cid"), audioHeld.toList())
+        refuse()
+        settle()
+        assertFalse("the mic publish was not the one refused", mic.isCompleted)
+        simulateMessageFromServer(
+            GravixcloudRtc.SignalResponse.newBuilder().setTrackPublished(
+                GravixcloudRtc.TrackPublishedResponse.newBuilder().setCid("mic-cid").setTrack(TestData.LOCAL_AUDIO_TRACK),
+            ).build(),
+        )
+        settle()
+        assertTrue(mic.await().isSuccess)
     }
 
     @Test

@@ -21,6 +21,7 @@ import com.gravixcloud.rtc.token.TokenPayload
 import com.gravixcloud.rtc.util.GravixLogSink
 import com.gravixcloud.rtc.util.GravixStepLogs
 import com.gravixcloud.rtc.util.LoggingLevel
+import gravixcloud.GravixcloudModels
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
@@ -38,10 +39,13 @@ import kotlinx.serialization.json.JsonPrimitive
 // its stored copy) in a slug -> media map, so candidates that carry no `media` are still checked.
 
 /**
- * What a room uses, as the join declares it. Wire names = [wireName].
- * - [AUDIO]: nobody in the room publishes or watches video (voice rooms);
- * - [VIDEO]: the room uses video (published by this user or by others): the default, because it is the safe one --
- *   it never lands on an audio-only region.
+ * What a room uses. Declaring it is optional (2026-11-04): with nothing declared a join goes to the fastest region and
+ * the session moves once if the room turns out to carry video ([GravixRegionMedia.autoDetect]). Wire names = [wireName].
+ * - [AUDIO]: nobody in the room publishes or watches video (voice rooms): the join may use any region, whatever this
+ *   process remembers of the room;
+ * - [VIDEO]: the room uses video (published by this user or by others): the join never lands on an audio-only region.
+ *
+ * A declaration decides the join only: a session on a region without video still moves once if the room carries video.
  */
 enum class GravixRoomMedia(val wireName: String) {
     AUDIO("audio"),
@@ -68,6 +72,20 @@ object GravixRegionMedia {
     /** How long a region that refused a medium is avoided for it. */
     const val REFUSAL_LIFE_MS = 10L * 60 * 1000
 
+    private const val ROOMS_WITH_VIDEO_MAX = 500
+
+    /** How long a room is remembered as carrying video. */
+    const val ROOM_VIDEO_MEMORY_LIFE_MS = 10L * 60 * 1000
+
+    /**
+     * The rollback switch for auto-detect. True (the default): a join with nothing declared may land on an audio-only
+     * region and moves once if the room carries video. False: the behaviour before 2026-11-04, where nothing declared
+     * means video and nothing is detected. Set it before the first join.
+     */
+    @JvmStatic
+    @Volatile
+    var autoDetect: Boolean = true
+
     private val lock = Any()
     private val mediaBySlug = HashMap<String, List<String>?>()
     private var lastRegions: List<GravixRegionUrl> = emptyList()
@@ -75,6 +93,14 @@ object GravixRegionMedia {
 
     /** region -> media -> refused until (wall ms). */
     private val refused = HashMap<String, MutableMap<GravixRoomMedia, Long>>()
+
+    /**
+     * Rooms that carried video when last seen (room -> wall ms), oldest first: a later join of one goes straight to a
+     * region that carries video instead of landing and moving again. In memory only. Owner, 2026-11-04: a rejoin of a room
+     * whose video is over goes back to the fastest region, so the session settles this at its leave and an entry ends
+     * after [ROOM_VIDEO_MEMORY_LIFE_MS].
+     */
+    private val roomsWithVideo = LinkedHashMap<String, Long>()
 
     private fun nowMs(): Long = GravixRegionMeasurements.clock.wallMs()
 
@@ -190,27 +216,105 @@ object GravixRegionMedia {
         }
     }
 
+    /** The room a token is for (`video.room`), or null. Never throws. */
+    @Suppress("SwallowedException", "TooGenericExceptionCaught")
+    internal fun roomOfToken(token: String?): String? {
+        if (token.isNullOrEmpty()) return null
+        return try {
+            TokenPayload(token).video?.room?.takeIf { it.isNotEmpty() }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Remembers that [room] carries video. Keeps the newest [ROOMS_WITH_VIDEO_MAX]. */
+    internal fun noteRoomHasVideo(room: String) {
+        if (room.isEmpty()) return
+        synchronized(lock) {
+            roomsWithVideo.remove(room)
+            roomsWithVideo[room] = nowMs()
+            val over = roomsWithVideo.keys.iterator()
+            while (roomsWithVideo.size > ROOMS_WITH_VIDEO_MAX) {
+                over.next()
+                over.remove()
+            }
+        }
+    }
+
+    /** Forgets [room]: it had no video when it was left. */
+    internal fun forgetRoomVideo(room: String) {
+        synchronized(lock) { roomsWithVideo.remove(room) }
+    }
+
+    /** True when [room] was remembered as carrying video in the last [ROOM_VIDEO_MEMORY_LIFE_MS]. */
+    internal fun roomHadVideo(room: String?): Boolean {
+        if (room == null) return false
+        return synchronized(lock) {
+            val at = roomsWithVideo[room] ?: return@synchronized false
+            if (nowMs() - at > ROOM_VIDEO_MEMORY_LIFE_MS) {
+                roomsWithVideo.remove(room)
+                false
+            } else {
+                true
+            }
+        }
+    }
+
+    /** How many rooms are remembered (tests). */
+    @VisibleForTesting
+    internal fun roomsWithVideoCount(): Int = synchronized(lock) { roomsWithVideo.size }
+
     /**
-     * The media a join uses: [declared] (default [GravixRoomMedia.VIDEO]), promoted to video when [enableVideo] (the
-     * join publishes the camera) or the token may publish video ([hintFromToken]). Never demoted. Logs the decision.
+     * True when a participant other than [localIdentity] who has not left has a live video track. Camera and screen share
+     * both are; a muted one carries nothing, and its unmute is an update that says so. Allocates nothing: the server re-sends the same update about every 500 ms.
+     */
+    internal fun infosCarryVideo(participants: List<GravixcloudModels.ParticipantInfo>, localIdentity: String?): Boolean {
+        for (p in participants) {
+            if (p.state == GravixcloudModels.ParticipantInfo.State.DISCONNECTED || p.identity == localIdentity) continue
+            for (i in 0 until p.tracksCount) {
+                val t = p.getTracks(i)
+                if (t.type == GravixcloudModels.TrackType.VIDEO && !t.muted) return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * The media a join uses, in this order: a join camera ([enableVideo]) or a token's video grant ([hintFromToken]) is
+     * video; then [declared]; then a room this process has seen with video (the token's room); then audio,
+     * so the fastest region wins and the session moves if the room turns out to carry video. With [autoDetect] off,
+     * nothing declared is video. Never demotes a declared video. Logs the decision and its cause.
      */
     @JvmStatic
     @JvmOverloads
+    @Suppress("ReturnCount")
     fun joinMedia(declared: GravixRoomMedia? = null, enableVideo: Boolean = false, token: String? = null): GravixRoomMedia {
-        val base = declared ?: GravixRoomMedia.VIDEO
-        if (base == GravixRoomMedia.VIDEO) {
-            GravixRegionLog.step("media", "media=video cause=${if (declared == null) "default" else "declared"}")
+        if (declared == GravixRoomMedia.VIDEO) {
+            GravixRegionLog.step("media", "media=video cause=declared")
             return GravixRoomMedia.VIDEO
         }
+        if (declared == null && !autoDetect) {
+            GravixRegionLog.step("media", "media=video cause=default")
+            return GravixRoomMedia.VIDEO
+        }
+        val said = if (declared == null) "auto" else "declared audio"
         if (enableVideo) {
-            GravixRegionLog.step("media", "media=video cause=enableVideo (declared audio)")
+            GravixRegionLog.step("media", "media=video cause=enableVideo ($said)")
             return GravixRoomMedia.VIDEO
         }
         if (hintFromToken(token) == GravixRoomMedia.VIDEO) {
-            GravixRegionLog.step("media", "media=video cause=token-grant-camera (declared audio)")
+            GravixRegionLog.step("media", "media=video cause=token-grant-camera ($said)")
             return GravixRoomMedia.VIDEO
         }
-        GravixRegionLog.step("media", "media=audio cause=declared")
+        if (declared == GravixRoomMedia.AUDIO) {
+            GravixRegionLog.step("media", "media=audio cause=declared")
+            return GravixRoomMedia.AUDIO
+        }
+        if (roomHadVideo(roomOfToken(token))) {
+            GravixRegionLog.step("media", "media=video cause=room-had-video")
+            return GravixRoomMedia.VIDEO
+        }
+        GravixRegionLog.step("media", "media=audio cause=auto")
         return GravixRoomMedia.AUDIO
     }
 
@@ -241,6 +345,7 @@ object GravixRegionMedia {
             lastRegions = emptyList()
             lastShortlist = emptyList()
             refused.clear()
+            roomsWithVideo.clear()
         }
     }
 }

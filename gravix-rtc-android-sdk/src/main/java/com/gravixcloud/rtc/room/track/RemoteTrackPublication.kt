@@ -23,20 +23,22 @@ import com.gravixcloud.rtc.events.collect
 import com.gravixcloud.rtc.room.participant.RemoteParticipant
 import com.gravixcloud.rtc.util.debounce
 import com.gravixcloud.rtc.util.invoke
+import gravixcloud.GravixcloudModels
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import gravixcloud.GravixcloudModels
 import javax.inject.Named
 
+@Suppress("TooManyFunctions") // the kept-publication steps of a full rejoin belong here
 class RemoteTrackPublication(
     info: GravixcloudModels.TrackInfo,
     track: Track? = null,
     participant: RemoteParticipant,
     @Named(InjectionNames.DISPATCHER_IO)
     private val ioDispatcher: CoroutineDispatcher,
-    autoSubscribe: Boolean,
+    private val autoSubscribe: Boolean,
 ) : TrackPublication(info, track, participant) {
 
     override var track: Track?
@@ -133,6 +135,56 @@ class RemoteTrackPublication(
             build()
         }
         participant.signalClient.sendUpdateSubscription(isDesired, participantTracks)
+    }
+
+    /** GRAVIX (2026-11-05): this publication was kept across a full rejoin: its settings go to the new session once it is subscribed there. */
+    internal var gravixSettingsToResend = false
+
+    /**
+     * GRAVIX (2026-11-05): a full rejoin: the new session knows nothing of what the app chose. Its subscription, when it
+     * differs from what the connect's autoSubscribe gives by default.
+     */
+    internal fun gravixResendSubscription() {
+        if (isDesired != autoSubscribe) setSubscribed(isDesired)
+    }
+
+    internal val gravixDisabled: Boolean
+        get() = disabled
+
+    /** GRAVIX (2026-11-05): this participant was dropped by the rejoin's grace and is back: what the app chose stays. */
+    internal fun gravixRestoreChoice(wasDesired: Boolean?, wasDisabled: Boolean) {
+        if (wasDesired != null && wasDesired != isDesired) setSubscribed(wasDesired)
+        if (wasDisabled) {
+            disabled = true
+            gravixSettingsToResend = true
+        }
+    }
+
+    /** GRAVIX (2026-11-05): the new session's track arrived: what the app chose for it goes out again. */
+    internal fun gravixResendSettingsIfKept() {
+        if (!gravixSettingsToResend) return
+        gravixSettingsToResend = false
+        sendUpdateTrackSettings.invoke()
+    }
+
+    /**
+     * GRAVIX (2026-11-05): the server thinks this track is delivered, this side lost it: unsubscribes, then subscribes a
+     * moment later, so the server really drops the old one and sends the track anew. A track the app does not want stays
+     * as it is.
+     */
+    internal fun gravixPullAgain(scope: CoroutineScope, gapMs: Long = 500L) {
+        if (!isDesired || !subscriptionAllowed) return
+        val participant = this.participant.get() as? RemoteParticipant ?: return
+        val participantTracks = with(GravixcloudModels.ParticipantTracks.newBuilder()) {
+            participantSid = participant.sid.value
+            addTrackSids(sid)
+            build()
+        }
+        participant.signalClient.sendUpdateSubscription(false, participantTracks)
+        scope.launch {
+            delay(gapMs)
+            if (track == null && isDesired) participant.signalClient.sendUpdateSubscription(true, participantTracks)
+        }
     }
 
     /**

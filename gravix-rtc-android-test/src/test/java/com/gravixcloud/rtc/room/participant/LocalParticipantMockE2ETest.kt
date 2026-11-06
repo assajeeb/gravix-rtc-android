@@ -391,6 +391,57 @@ class LocalParticipantMockE2ETest : MockE2ETest() {
         assertEquals(2, getPublisherPeerConnection().transceivers.size)
     }
 
+    /**
+     * Review 2026-11-05: the backup codec's AddTrack ending with an error. Its `async` fails the `scope.launch` around it
+     * (a SupervisorJob with no handler), so the try around await() doesn't help: an uncaught exception, on a phone a crash.
+     */
+    @Test
+    fun aBackupCodecAddTrackThatFailsDoesNotEscape() = runTest {
+        room.videoTrackPublishDefaults = room.videoTrackPublishDefaults.copy(
+            videoCodec = VideoCodec.VP9.codecName,
+            scalabilityMode = "L3T3",
+            backupCodec = BackupVideoCodec(codec = VideoCodec.VP8.codecName),
+        )
+        connect()
+        room.localParticipant.publishVideoTrack(createLocalTrack())
+        val trackSid = room.localParticipant.videoTrackPublications.first().first.sid
+        wsFactory.unregisterSignalRequestHandler(wsFactory.defaultSignalRequestHandler)
+        receiveSubscribedQualityUpdate(trackSid)
+        // no answer: the AddTrack's 20 s deadline ends it
+        testScheduler.advanceTimeBy(21_000)
+        testScheduler.runCurrent()
+        assertEquals(1, room.localParticipant.videoTrackPublications.size)
+    }
+
+    /** Flutter 0.8.4's review: a republish that skips the simulcast state. Here publishTrackImpl clears it on every attempt. */
+    @Test
+    fun aBackupCodecIsPublishedAgainAfterAFullReconnect() = runTest {
+        room.videoTrackPublishDefaults = room.videoTrackPublishDefaults.copy(
+            videoCodec = VideoCodec.VP9.codecName,
+            scalabilityMode = "L3T3",
+            backupCodec = BackupVideoCodec(codec = VideoCodec.VP8.codecName),
+        )
+        room.setReconnectionType(com.gravixcloud.rtc.room.ReconnectType.FORCE_FULL_RECONNECT)
+        connect()
+        room.localParticipant.publishVideoTrack(createLocalTrack())
+        receiveSubscribedQualityUpdate(room.localParticipant.videoTrackPublications.first().first.sid)
+        assertEquals(2, getPublisherPeerConnection().transceivers.size)
+
+        val before = wsFactory.ws
+        disconnectPeerConnection()
+        testScheduler.advanceTimeBy(1000)
+        testScheduler.runCurrent()
+        assertTrue("the rejoin dialled", wsFactory.ws !== before)
+        wsFactory.listener.onOpen(wsFactory.ws, createOpenResponse(wsFactory.request))
+        simulateMessageFromServer(TestData.JOIN)
+        testScheduler.runCurrent()
+        getPublisherPeerConnection().moveToIceConnectionState(org.webrtc.PeerConnection.IceConnectionState.CONNECTED)
+        connectPeerConnection()
+        testScheduler.advanceUntilIdle()
+        receiveSubscribedQualityUpdate(room.localParticipant.videoTrackPublications.first().first.sid)
+        assertEquals("a stale codec entry would stop this", 2, getPublisherPeerConnection().transceivers.size)
+    }
+
     @Test
     fun disposeDisposesVideoSource() {
         val source = mock(VideoSource::class.java)

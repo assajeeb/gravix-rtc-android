@@ -23,6 +23,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.ConnectivityManager.NetworkCallback
 import android.net.Network
+import android.os.SystemClock
 import androidx.annotation.VisibleForTesting
 import com.gravixcloud.rtc.ConnectOptions
 import com.gravixcloud.rtc.GravixRecoveryOptions
@@ -53,6 +54,7 @@ import com.gravixcloud.rtc.noise.GravixNoiseSuppression
 import com.gravixcloud.rtc.noise.GravixNoiseSuppressionOptions
 import com.gravixcloud.rtc.regions.GravixRegionFailoverOrder
 import com.gravixcloud.rtc.regions.GravixRegionLog
+import com.gravixcloud.rtc.regions.GravixRegionMeasurements
 import com.gravixcloud.rtc.regions.GravixRegionMedia
 import com.gravixcloud.rtc.regions.GravixRegionUrl
 import com.gravixcloud.rtc.regions.GravixRoomMedia
@@ -100,9 +102,11 @@ import dagger.assisted.AssistedInject
 import gravixcloud.GravixcloudModels
 import gravixcloud.GravixcloudRtc
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
@@ -127,9 +131,23 @@ import org.webrtc.audio.AudioDeviceModule
 import java.net.URI
 import java.util.Collections
 import java.util.Date
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Named
 import kotlin.time.Duration
+
+/** GRAVIX (2026-11-04, auto-detect): the cause in the log lines of a session moved for the room's video. */
+private const val ROOM_HAS_VIDEO = "room-has-video"
+
+/** GRAVIX (2026-11-04): the causes of a session moved because this user turns video on. */
+private const val CAMERA_ON = "camera-on"
+private const val SCREEN_ON = "screen-on"
+private const val RECONNECT_WAITS = 50
+private const val ROOM_VIDEO_MOVE_WINDOW_MS = 60_000L
+private const val ROOM_VIDEO_MOVE_NOT_UP_POLL_MS = 100L
+private const val ROOM_VIDEO_MOVE_BUSY_POLL_MS = 1000L
+private const val RECONNECT_WAIT_MS = 200L
 
 class Room
 @AssistedInject
@@ -419,16 +437,73 @@ constructor(
 
     /**
      * GRAVIX (2026-10-21, per-region media): the media of the current connect ([ConnectOptions.media], promoted by
-     * [ConnectOptions.video] or the token's video grant; see [GravixRegionMedia.joinMedia]). A region failover tries
-     * the regions that allow it first (the others stay as the last resort). Null before the first connect.
+     * [ConnectOptions.video] or the token's video grant; see [GravixRegionMedia.joinMedia]), raised to video when the
+     * room turns out to carry video. A region failover tries the regions that allow it first (the others stay as the
+     * last resort). Null before the first connect.
      */
     @Volatile
     var gravixJoinMedia: GravixRoomMedia? = null
         private set
 
     /** GRAVIX (2026-10-21): the one media move of this session is done ([gravixFailoverForMediaRefusal]). */
+    private val gravixMediaMoveDone = AtomicBoolean(false)
+
+    /** GRAVIX (2026-11-04): completes when the media move holding [gravixMediaMoveDone] and its republish have ended. */
     @Volatile
-    private var gravixMediaMoveDone = false
+    private var gravixMediaMoveRunning: CompletableDeferred<Unit>? = null
+
+    /**
+     * GRAVIX (2026-11-04): completes when that move's reconnect has ended, before its republish. A publish waits on
+     * this one: it holds its source's publish lock, which the republish needs.
+     */
+    @Volatile
+    private var gravixMediaMoveReconnected: CompletableDeferred<Unit>? = null
+
+    /**
+     * GRAVIX (2026-11-05): how long a session on a region without video keeps trying to move for the room's video, while
+     * the session is not up yet or a reconnect holds the engine. Past it the viewer would see nothing, so it is long; each
+     * look costs one or two reads.
+     */
+    @VisibleForTesting
+    internal var gravixRoomVideoMoveWindowMs = ROOM_VIDEO_MOVE_WINDOW_MS
+
+    /** GRAVIX (2026-11-05): a move found the engine reconnecting; asking again later can work. */
+    @Volatile
+    private var gravixMoveFoundBusy = false
+
+    /** GRAVIX (2026-11-05): the provider's answer to that move. Asking again would give the region after it: its list moves on per ask. */
+    @Volatile
+    private var gravixBusyMoveUrl: String? = null
+
+    /** GRAVIX (2026-11-05, keepParticipantsOnRejoin): identities kept across the running full rejoin, until its JoinResponse. */
+    @Volatile
+    private var gravixKeptForRejoin: Set<Participant.Identity>? = null
+
+    /** GRAVIX (2026-11-05): kept participants a rejoin's JoinResponse did not name, with the end of their grace. */
+    private val gravixAbsentAfterRejoin = ConcurrentHashMap<Participant.Identity, Job>()
+
+    /**
+     * GRAVIX (2026-11-05): what the grace dropped (identity -> sid). The server knows nothing of that: if the participant
+     * comes back, its subscriptions are still up on the server, and no new track is sent for them.
+     */
+    private val gravixDroppedByGrace = ConcurrentHashMap<Participant.Identity, GravixDroppedByGrace>()
+
+    /** What the app had chosen for a participant the grace dropped: what it wanted of each track, and those disabled. */
+    private class GravixDroppedByGrace(val sid: String, val desired: Map<String, Boolean>, val disabled: Set<String>)
+
+    /** GRAVIX (2026-11-05): when this session last rejoined on another server. */
+    @Volatile
+    private var gravixLastMoveAtMs: Long? = null
+
+    /** GRAVIX (2026-11-05, R3): the room video memory is settled for this session. */
+    private val gravixRoomVideoSettled = AtomicBoolean(false)
+
+    /** GRAVIX (2026-11-04, auto-detect): this session already reacted to video in the room. */
+    private val gravixRoomVideoSeen = AtomicBoolean(false)
+
+    /** GRAVIX (2026-11-04, auto-detect): the room's video is remembered; a participant update costs one read after this. */
+    @Volatile
+    private var gravixRoomVideoNoted = false
 
     /**
      * GRAVIX (2026-10-21, per-region media): [reason] (a signal request response message, a publish error, a leave
@@ -447,16 +522,23 @@ constructor(
      * refused signal request; an app may call it with a publish error. Never throws (except the caller's
      * cancellation).
      */
-    @Suppress("ReturnCount", "TooGenericExceptionCaught")
-    suspend fun gravixFailoverForMediaRefusal(reason: Any?): Boolean {
+    suspend fun gravixFailoverForMediaRefusal(reason: Any?): Boolean =
+        gravixFailoverForMediaRefusal(reason, GravixRegionMedia.MEDIA_NOT_ALLOWED)
+
+    /** [gravixFailoverForMediaRefusal] with the [cause] its log lines name. */
+    @Suppress("ReturnCount", "TooGenericExceptionCaught", "LongMethod", "CyclomaticComplexMethod")
+    private suspend fun gravixFailoverForMediaRefusal(reason: Any?, cause: String): Boolean {
         if (!GravixRegionMedia.isMediaNotAllowed(reason)) return false
         val refused = GravixRegionMedia.refusedMediaOf(reason)
         val from = connectedUrl ?: engine.connectedUrl
         val fromRegion = connectedRegion ?: from?.let { gravixRegionFor(it) }
         fun log(outcome: String) = GravixRegionLog.step(
             "mediaFailover",
-            "media=${refused.wireName} from=${fromRegion ?: "?"} $outcome cause=${GravixRegionMedia.MEDIA_NOT_ALLOWED}",
+            "media=${refused.wireName} from=${fromRegion ?: "?"} $outcome cause=$cause",
         )
+        var claimed = false
+        var running: CompletableDeferred<Unit>? = null
+        var reconnected: CompletableDeferred<Unit>? = null
         try {
             val recovery = engine.gravixRecovery
             if (!recovery.mediaRefusalFailover) {
@@ -464,7 +546,8 @@ constructor(
                 log("stay reason=option-off")
                 return false
             }
-            if (fromRegion != null) GravixRegionMedia.noteRefused(fromRegion, refused)
+            // a camera-on move is the SDK's own foresight: this region refused nothing
+            if (fromRegion != null && cause != CAMERA_ON && cause != SCREEN_ON) GravixRegionMedia.noteRefused(fromRegion, refused)
             // review 2026-10-21 (#7): the session uses the refused medium (it just tried to): every later restart /
             // failover of this session orders regions for it, moved or not
             val media = GravixRegionMedia.promote(gravixJoinMedia, refused)
@@ -472,38 +555,64 @@ constructor(
             gravixJoinMedia = media
             (regionUrlProvider ?: engine.regionUrlProvider)?.gravixMedia = media
             if (engine.regionUrlProvider !== regionUrlProvider) engine.regionUrlProvider?.gravixMedia = media
-            if (gravixMediaMoveDone) {
+            // claimed before any suspension: a refusal and the room's video racing move once
+            if (!gravixMediaMoveDone.compareAndSet(false, true)) {
                 log("stay reason=already-moved-once")
                 return false
             }
+            claimed = true
+            running = CompletableDeferred<Unit>().also { gravixMediaMoveRunning = it }
+            reconnected = CompletableDeferred<Unit>().also { gravixMediaMoveReconnected = it }
             val provider = regionUrlProvider ?: engine.regionUrlProvider
             if (provider == null || from == null) {
+                gravixMediaMoveDone.set(false)
                 log("stay reason=no-region-list")
                 return false
             }
             provider.gravixMedia = media
             val known = gravixRegionHints + GravixRegionMedia.lastDirectory() +
                 provider.gravixRegionSettings?.regions.orEmpty().map { GravixRegionUrl(it.region, it.url) }
-            val next = provider.getNextBestRegionUrl(
+            // Owner, 2026-11-04 (R1): the region this medium's joins use, with its hysteresis, not the raw fastest. It may be
+            // one the server's list doesn't have, and it needs no list at all. Off with auto-detect, as in 0.3.x.
+            val target = if (recovery.measuredRegionFailover && GravixRegionMedia.autoDetect) {
+                GravixRegionMeasurements.mediaMoveTarget(refused)?.takeIf {
+                    GravixRegionFailoverOrder.normalizeUrl(it.url) != GravixRegionFailoverOrder.normalizeUrl(from)
+                }
+            } else {
+                null
+            }
+            // asking the provider again would give the region after this one: its list moves on per ask
+            val next = gravixBusyMoveUrl ?: target?.url ?: provider.getNextBestRegionUrl(
                 currentUrl = from,
                 measuredOrder = recovery.measuredRegionFailover,
                 lastGoodFallback = recovery.lastGoodRegionList,
                 currentUrlFailed = false,
             )
+            val knownWithTarget = if (target != null) known + target.entry else known
+            GravixRegionLog.step(
+                "mediaTarget",
+                "media=${refused.wireName} -> ${next?.let { GravixRegionFailoverOrder.regionOfUrl(it, knownWithTarget) } ?: "?"} " +
+                    GravixRegionMeasurements.mediaMoveWhy(refused),
+            )
             if (next == null ||
                 GravixRegionFailoverOrder.normalizeUrl(next) == GravixRegionFailoverOrder.normalizeUrl(from) ||
                 !GravixRegionMedia.urlAllows(next, refused, known)
             ) {
+                gravixMediaMoveDone.set(false)
                 log("stay reason=no-region-allows")
                 return false
             }
-            val toRegion = GravixRegionFailoverOrder.regionOfUrl(next, known)
+            val toRegion = GravixRegionFailoverOrder.regionOfUrl(next, knownWithTarget)
             val job = engine.gravixRestartConnection(next)
             if (job == null) {
-                log("stay reason=error(reconnect-busy)")
+                gravixMediaMoveDone.set(false)
+                gravixMoveFoundBusy = true
+                gravixBusyMoveUrl = next
+                log("stay reason=reconnect-busy")
                 return false
             }
-            gravixMediaMoveDone = true
+            gravixBusyMoveUrl = null
+            claimed = false // the move started: it stays done
             // names connectedRegion after the move
             if (toRegion != null &&
                 gravixRegionHints.none { GravixRegionFailoverOrder.normalizeUrl(it.url) == GravixRegionFailoverOrder.normalizeUrl(next) }
@@ -512,12 +621,163 @@ constructor(
             }
             log("-> ${toRegion ?: GravixJoinLog.host(next)} reason=moved")
             job.join()
-            gravixRepublishAfterMediaMove(refused, toRegion)
+            reconnected.complete(Unit)
+            // the publish that asked for this move follows it itself
+            if (cause != CAMERA_ON && cause != SCREEN_ON) gravixRepublishAfterMediaMove(refused, toRegion)
             return true
         } catch (e: Exception) {
+            if (claimed) gravixMediaMoveDone.set(false)
             e.rethrowIfCancellationSignal()
             log("stay reason=error(${e.javaClass.simpleName})")
             return false
+        } finally {
+            reconnected?.complete(Unit)
+            running?.complete(Unit)
+        }
+    }
+
+    /**
+     * GRAVIX (2026-11-04, auto-detect): [participants] (a join response, a participant update) may show the room
+     * carries video. It is remembered for later joins, the session's media becomes video so a later failover avoids
+     * audio-only regions, and a session on a region without video moves once ([gravixMoveForRoomVideo]): an audio-only
+     * node does not pull video, so this viewer would otherwise see nothing and never be told. Sends nothing to any
+     * server to decide. May run on signal and connect threads at once. Never throws.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private fun gravixCheckRoomVideo(participants: List<GravixcloudModels.ParticipantInfo>, roomName: String? = null) {
+        // the server re-sends the same update about every 500 ms
+        if (gravixRoomVideoNoted || !GravixRegionMedia.autoDetect) return
+        try {
+            if (!gravixRoomVideoSeen.get()) {
+                if (!GravixRegionMedia.infosCarryVideo(participants, localParticipant.identity?.value)) return
+                if (!gravixRoomVideoSeen.compareAndSet(false, true)) return
+                if (gravixJoinMedia != GravixRoomMedia.VIDEO) {
+                    GravixRegionLog.step("media", "media=video cause=room-has-video (was ${gravixJoinMedia?.wireName})")
+                    gravixJoinMedia = GravixRoomMedia.VIDEO
+                }
+                regionUrlProvider?.gravixMedia = GravixRoomMedia.VIDEO
+                engine.regionUrlProvider?.gravixMedia = GravixRoomMedia.VIDEO
+                coroutineScope.launch { gravixMoveForRoomVideo() }
+            }
+            // video can arrive before the join response names the room, so this may happen on a later call
+            val room = (roomName ?: name)?.takeIf { it.isNotEmpty() } ?: return
+            GravixRegionMedia.noteRoomHasVideo(room)
+            gravixRoomVideoNoted = true
+        } catch (e: Exception) {
+            GxLog.w { "room video check: ${e.javaClass.simpleName}" }
+        }
+    }
+
+    /**
+     * Moves the session for the room's video, through the media refusal's move, unless its region carries video. At join
+     * the video shows before the session is up, and the state turns connected a moment before the url is noted. GRAVIX
+     * (2026-11-05, Flutter 0.8.3): it keeps trying for [gravixRoomVideoMoveWindowMs] while the session is not up or a
+     * reconnect holds the engine, with the target of its first ask. Before, it gave up and the viewer stayed on an
+     * audio-only region with no video. Disconnect and release cancel the wait with the room's scope.
+     */
+    private suspend fun gravixMoveForRoomVideo() {
+        fun stay(reason: String) = GravixRegionLog.step("mediaFailover", "media=video stay reason=$reason cause=$ROOM_HAS_VIDEO")
+        var waitedMs = 0L
+        var why = "not-connected"
+        try {
+            while (true) {
+                val url = connectedUrl ?: engine.connectedUrl
+                val up = state == State.CONNECTED && url != null
+                // the state stays CONNECTED through a resume, and the reconnect path refuses a move during one
+                val busy = up && engine.gravixReconnecting
+                val readyUrl = url.takeIf { up && !busy }
+                if (readyUrl != null && gravixRoomVideoMoveDecided(readyUrl)) return
+                if (busy || gravixMoveFoundBusy) why = "reconnect-busy"
+                if (waitedMs >= gravixRoomVideoMoveWindowMs) {
+                    stay(why)
+                    return
+                }
+                val pollMs = if (up) ROOM_VIDEO_MOVE_BUSY_POLL_MS else ROOM_VIDEO_MOVE_NOT_UP_POLL_MS
+                delay(pollMs)
+                waitedMs += pollMs
+            }
+        } catch (e: CancellationException) {
+            stay(why)
+            throw e
+        }
+    }
+
+    /** One try of [gravixMoveForRoomVideo] from [url]. True: nothing more to do; asking again changes nothing. */
+    private suspend fun gravixRoomVideoMoveDecided(url: String): Boolean {
+        if (gravixRegionTakesVideo(url)) {
+            GravixRegionLog.step("mediaFailover", "media=video stay reason=region-carries-video cause=$ROOM_HAS_VIDEO")
+            return true
+        }
+        gravixMoveFoundBusy = false
+        gravixMoveAndSettle(
+            GravixRegionMedia.MEDIA_NOT_ALLOWED,
+            ROOM_HAS_VIDEO,
+            gravixEndRefusedPublishes(GravixRegionMedia.MEDIA_NOT_ALLOWED, ROOM_HAS_VIDEO),
+        )
+        return !gravixMoveFoundBusy
+    }
+
+    /** GRAVIX (2026-11-04): false only when [url]'s region is known not to carry video; unknown media is yes. */
+    private fun gravixRegionTakesVideo(url: String): Boolean {
+        val known = gravixRegionHints + GravixRegionMedia.lastDirectory() +
+            (regionUrlProvider ?: engine.regionUrlProvider)?.gravixRegionSettings?.regions.orEmpty().map { GravixRegionUrl(it.region, it.url) }
+        // the server's name for its region need not be a slug of the directory, so the url has its say too
+        val serverAllows = gravixServerRegion?.let { GravixRegionMedia.regionAllows(GravixRegionUrl(it, url), GravixRoomMedia.VIDEO) } ?: true
+        return serverAllows && GravixRegionMedia.urlAllows(url, GravixRoomMedia.VIDEO, known)
+    }
+
+    /**
+     * GRAVIX (2026-11-04, owner's design): this user is about to publish video ([isScreencast]: a screen share, else
+     * the camera). On a region known not to carry video the session moves FIRST, once, the failover's order, and
+     * nothing is tried there. True: publish now. False: no region takes video, the move failed, the session already
+     * moved, or [com.gravixcloud.rtc.GravixRecoveryOptions.mediaRefusalFailover] is off; the publish fails at once. A
+     * region of unknown media, or a session not connected, is true: the publish goes on as before, and a refusal
+     * ([gravixEndRefusedPublishes]) is the safety net. Called under the source's publish lock.
+     */
+    private suspend fun gravixBeforeVideoPublish(isScreencast: Boolean): Boolean {
+        if (!GravixRegionMedia.autoDetect) return true // the full rollback: the server decides, as in 0.3.x
+        gravixMediaMoveReconnected?.await()
+        var waits = 0
+        while (engine.gravixReconnecting && waits++ < RECONNECT_WAITS) delay(RECONNECT_WAIT_MS)
+        val url = engine.connectedUrl ?: connectedUrl
+        if (state != State.CONNECTED || url == null || gravixRegionTakesVideo(url)) return true
+        val cause = if (isScreencast) SCREEN_ON else CAMERA_ON
+        if (!gravixFailoverForMediaRefusal(GravixRegionMedia.MEDIA_NOT_ALLOWED, cause)) return false
+        val now = engine.connectedUrl ?: connectedUrl
+        val ok = state == State.CONNECTED && now != null && gravixRegionTakesVideo(now)
+        if (!ok) GravixRegionLog.step("mediaFailover", "media=video stay reason=move-failed cause=$cause")
+        return ok
+    }
+
+    /**
+     * GRAVIX (2026-11-04): this node will never answer the pending publishes of the refused medium, so they end now:
+     * a camera publish must not hold its publish lock for the 20 s AddTrack deadline while the republish after the
+     * move waits on that lock (field: first camera RTP 20.8 s after the enable, and the enable returned false). The
+     * enable that loses its publish here waits for the returned outcome instead ([gravixMoveAndSettle]). Also with
+     * [GravixRecoveryOptions.mediaRefusalFailover] off: no move then, the enable fails at once. Never suspends.
+     */
+    private fun gravixEndRefusedPublishes(reason: Any?, cause: String): CompletableDeferred<Boolean> {
+        val refused = GravixRegionMedia.refusedMediaOf(reason)
+        val outcome = CompletableDeferred<Boolean>()
+        // before the abort: the publish it ends reads this as soon as it unwinds
+        localParticipant.gravixRefusalOutcome = outcome
+        val kind = if (refused == GravixRoomMedia.AUDIO) GravixcloudModels.TrackType.AUDIO else GravixcloudModels.TrackType.VIDEO
+        val ended = engine.gravixAbortPendingPublishes(kind)
+        if (ended > 0) GravixRegionLog.step("mediaPublishEnded", "media=${refused.wireName} count=$ended cause=$cause")
+        return outcome
+    }
+
+    /**
+     * GRAVIX (2026-11-04): the media move, then [outcome]: true when the camera is published once the move (this one,
+     * or the one already running) and its republish are done.
+     */
+    private suspend fun gravixMoveAndSettle(reason: Any?, cause: String, outcome: CompletableDeferred<Boolean>) {
+        try {
+            gravixFailoverForMediaRefusal(reason, cause)
+            gravixMediaMoveRunning?.await()
+            outcome.complete(localParticipant.getTrackPublication(Track.Source.CAMERA) != null)
+        } finally {
+            outcome.complete(false)
         }
     }
 
@@ -540,7 +800,7 @@ constructor(
         }
         GravixRegionLog.step("mediaRepublish", "camera start region=${region ?: connectedRegion ?: "?"}")
         try {
-            local.setCameraEnabled(true)
+            local.gravixEnableCameraAfterMove()
             val ok = local.getTrackPublication(Track.Source.CAMERA) != null
             GravixRegionLog.step("mediaRepublish", "camera ${if (ok) "ok" else "fail reason=no-publication"}")
         } catch (e: Exception) {
@@ -636,6 +896,13 @@ constructor(
 
     val localParticipant: LocalParticipant = localParticipantFactory.create(dynacast = false).apply {
         internalListener = this@Room
+        gravixVideoPublishGate = { isScreencast -> gravixBeforeVideoPublish(isScreencast) }
+        gravixSessionBack = {
+            engine.gravixAwaitReconnectEnd()
+            val now = this@Room.state
+            GravixRegionLog.step("mediaRepublish", "session state=$now region=${connectedRegion ?: "?"}")
+            now == State.CONNECTED
+        }
     }
 
     private var mutableRemoteParticipants by flowDelegate(emptyMap<Participant.Identity, RemoteParticipant>())
@@ -776,7 +1043,12 @@ constructor(
             GravixForegroundService.roomConnecting(this@Room, context, foregroundService)
             connectOptions = options
             // GRAVIX (2026-10-21): the connect's media (declared, promoted by a camera on connect or the token's grant)
-            gravixMediaMoveDone = false
+            gravixMediaMoveDone.set(false)
+            gravixRoomVideoSeen.set(false)
+            gravixRoomVideoNoted = false
+            gravixRoomVideoSettled.set(false)
+            gravixLastMoveAtMs = null
+            gravixBusyMoveUrl = null
             gravixJoinMedia = GravixRegionMedia.joinMedia(options.media, options.video, token)
 
             coroutineScope = CoroutineScope(defaultDispatcher + SupervisorJob())
@@ -1067,6 +1339,7 @@ constructor(
         }
         name = response.room.name
         metadata = response.room.metadata
+        gravixCheckRoomVideo(response.otherParticipantsList, response.room.name)
 
         if (e2eeManager != null && !response.sifTrailer.isEmpty) {
             e2eeManager!!.keyProvider().setSifTrailer(response.sifTrailer.toByteArray())
@@ -1084,10 +1357,116 @@ constructor(
         localParticipant.updateFromInfo(response.participant)
         localParticipant.setEnabledPublishCodecs(response.enabledPublishCodecsList)
 
-        if (response.otherParticipantsList.isNotEmpty()) {
-            response.otherParticipantsList.forEach { info ->
-                getOrCreateRemoteParticipant(Participant.Identity(info.identity), info)
+        // GRAVIX (2026-11-05): who is kept across a full rejoin is decided here, once
+        val kept = gravixKeptForRejoin
+        gravixKeptForRejoin = null
+        response.otherParticipantsList.forEach { info -> gravixJoinResponseParticipant(info, kept) }
+        if (kept != null) gravixArmAbsentGrace(kept, response.otherParticipantsList.mapTo(HashSet()) { Participant.Identity(it.identity) })
+    }
+
+    private fun gravixJoinResponseParticipant(info: GravixcloudModels.ParticipantInfo, kept: Set<Participant.Identity>?) {
+        val identity = Participant.Identity(info.identity)
+        val existing = remoteParticipants[identity]
+        if (kept != null && existing != null) {
+            existing.updateFromInfo(info)
+            sidToIdentity[Participant.Sid(info.sid)] = identity
+        } else {
+            val participant = getOrCreateRemoteParticipant(identity, info)
+            // new since the rejoin began: nobody else announces it
+            if (kept != null) eventBus.postEvent(RoomEvent.ParticipantConnected(this, participant), coroutineScope)
+        }
+    }
+
+    /** [wasAbsent]: the new session didn't know this participant when the rejoin restored subscriptions. */
+    private fun gravixUpdateKnownParticipant(participant: RemoteParticipant, info: GravixcloudModels.ParticipantInfo, wasAbsent: Boolean) {
+        participant.updateFromInfo(info)
+        sidToIdentity[Participant.Sid(info.sid)] = Participant.Identity(info.identity)
+        if (wasAbsent) participant.gravixResendSubscriptions()
+    }
+
+    /** Back after the grace dropped it, same session (Gulf test: 28 s of silence until the leave): subscribed again. */
+    private fun gravixPullAgainIfDroppedByGrace(identity: Participant.Identity, sid: String, participant: RemoteParticipant) {
+        val dropped = gravixDroppedByGrace.remove(identity)?.takeIf { it.sid == sid } ?: return
+        GravixRegionLog.step("participantAbsent", "back reason=dropped-by-grace pull=again")
+        participant.trackPublications.values.filterIsInstance<RemoteTrackPublication>().forEach {
+            it.gravixRestoreChoice(dropped.desired[it.sid], it.sid in dropped.disabled)
+        }
+        participant.gravixPullAgain()
+    }
+
+    /**
+     * GRAVIX (2026-11-05, Flutter 0.8.2): kept participants the rejoin's JoinResponse did not name may still arrive: on a
+     * node where the room was just created, the others come through the relay a moment later. The participant updates are
+     * held until this returns ([RTCEngine.joinImpl] calls `onReadyForResponses` after it), so none can overtake it. A
+     * rejoin on another node waits longer ([GravixRecoveryOptions.rejoinAbsentMoveGraceMs]). Field, Gulf test 2026-11-04:
+     * "left" 5 s after the move with the host's audio and video playing.
+     */
+    private fun gravixArmAbsentGrace(kept: Set<Participant.Identity>, present: Set<Participant.Identity>) {
+        val previous = connectedUrl
+        val dialed = engine.gravixDialUrl
+        val moved = previous != null && dialed != null &&
+            GravixRegionFailoverOrder.normalizeUrl(previous) != GravixRegionFailoverOrder.normalizeUrl(dialed)
+        val recovery = engine.gravixRecovery
+        val now = SystemClock.elapsedRealtime()
+        if (moved) gravixLastMoveAtMs = now
+        // a rejoin soon after a move: the room may still be new on this server
+        val lastMove = gravixLastMoveAtMs
+        val soonAfterMove = lastMove != null && now - lastMove <= recovery.rejoinAbsentMoveGraceMs
+        val graceMs = if (soonAfterMove) recovery.rejoinAbsentMoveGraceMs else recovery.rejoinAbsentGraceMs
+        for (identity in kept) {
+            if (identity in present || identity !in remoteParticipants) continue
+            GravixRegionLog.step("participantAbsent", "grace=${graceMs}ms moved=$moved cause=not-in-join-response")
+            gravixAbsentAfterRejoin.remove(identity)?.cancel()
+            gravixAbsentAfterRejoin[identity] = coroutineScope.launch {
+                delay(graceMs)
+                gravixAbsentAfterRejoin.remove(identity)
+                gravixAbsentGraceOver(identity)
             }
+        }
+    }
+
+    private fun gravixCancelAbsent() {
+        gravixAbsentAfterRejoin.values.forEach { it.cancel() }
+        gravixAbsentAfterRejoin.clear()
+    }
+
+    /**
+     * The grace ran out. Media received on the new session proves the participant is in the room (its tracks were
+     * unsubscribed when the rejoin began): a real leave is then told by the server, which knows of it.
+     */
+    private fun gravixAbsentGraceOver(identity: Participant.Identity) {
+        val participant = remoteParticipants[identity] ?: return
+        if (participant.trackPublications.values.any { it.track != null }) {
+            GravixRegionLog.step("participantAbsent", "kept reason=media-flowing")
+            return
+        }
+        GravixRegionLog.step("participantAbsent", "left reason=grace-over")
+        val publications = participant.trackPublications.values.filterIsInstance<RemoteTrackPublication>()
+        gravixDroppedByGrace[identity] = GravixDroppedByGrace(
+            participant.sid.value,
+            publications.associate { it.sid to it.isDesired },
+            publications.filter { it.gravixDisabled }.mapTo(HashSet()) { it.sid },
+        )
+        handleParticipantDisconnect(identity)
+    }
+
+    /**
+     * GRAVIX (owner, 2026-11-04, R3): the session ends. The memory of [GravixRegionMedia.noteRoomHasVideo] is kept only if
+     * the room still has video now, remote tracks or this user's own camera; a rejoin of a room without it goes back to
+     * the fastest region by the normal path. Before anything is torn down, once per session. Never throws.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private fun gravixSettleRoomVideoMemory() {
+        if (!GravixRegionMedia.autoDetect) return
+        val room = name?.takeIf { it.isNotEmpty() } ?: return
+        if (!gravixRoomVideoSettled.compareAndSet(false, true)) return
+        try {
+            val video = localParticipant.gravixHasLiveVideo() ||
+                remoteParticipants.values.any { p -> p.trackPublications.values.any { it.kind == Track.Kind.VIDEO && !it.muted } }
+            if (video) GravixRegionMedia.noteRoomHasVideo(room) else GravixRegionMedia.forgetRoomVideo(room)
+            GravixRegionLog.step("media", "roomMemory ${if (video) "kept" else "forgotten"} cause=leave")
+        } catch (e: Exception) {
+            GxLog.w { "room video memory: ${e.javaClass.simpleName}" }
         }
     }
 
@@ -1402,6 +1781,7 @@ constructor(
         if (state == State.DISCONNECTED) {
             return
         }
+        gravixSettleRoomVideoMemory() // before anything is torn down
         runBlocking {
             stateLock.withLock {
                 if (state == State.DISCONNECTED) {
@@ -1431,6 +1811,9 @@ constructor(
      * Removes all participants and tracks from the room.
      */
     private fun cleanupRoom() {
+        gravixCancelAbsent()
+        gravixDroppedByGrace.clear()
+        gravixKeptForRejoin = null
         e2eeManager?.dispose()
         e2eeManager = null
         localParticipant.cleanup()
@@ -1707,6 +2090,7 @@ constructor(
      * @suppress
      */
     override fun onUpdateParticipants(updates: List<GravixcloudModels.ParticipantInfo>) {
+        gravixCheckRoomVideo(updates)
         for (info in updates) {
             val participantSid = Participant.Sid(info.sid)
             // Gravix server doesn't send identity info prior to version 1.5.2 in disconnect updates
@@ -1729,15 +2113,19 @@ constructor(
 
             val isNewParticipant = !remoteParticipants.contains(participantIdentity)
 
+            // GRAVIX (2026-11-05): a kept participant the rejoin's JoinResponse did not name is back, or really left
+            val wasAbsent = gravixAbsentAfterRejoin.remove(participantIdentity)?.also { it.cancel() } != null
+
             if (info.state == GravixcloudModels.ParticipantInfo.State.DISCONNECTED) {
+                gravixDroppedByGrace.remove(participantIdentity)
                 handleParticipantDisconnect(participantIdentity)
             } else {
                 val participant = getOrCreateRemoteParticipant(participantIdentity, info)
                 if (isNewParticipant) {
                     eventBus.postEvent(RoomEvent.ParticipantConnected(this, participant), coroutineScope)
+                    gravixPullAgainIfDroppedByGrace(participantIdentity, info.sid, participant)
                 } else {
-                    participant.updateFromInfo(info)
-                    sidToIdentity[participantSid] = participantIdentity
+                    gravixUpdateKnownParticipant(participant, info, wasAbsent)
                 }
             }
         }
@@ -1908,7 +2296,15 @@ constructor(
      * @suppress
      */
     override fun onEngineGravixRequestResponse(message: String) {
-        if (GravixRegionMedia.isMediaNotAllowed(message)) coroutineScope.launch { gravixFailoverForMediaRefusal(message) }
+        if (!GravixRegionMedia.isMediaNotAllowed(message)) return
+        if (!GravixRegionMedia.autoDetect) { // the full rollback: the publish keeps its deadline, as in 0.3.x
+            coroutineScope.launch { gravixFailoverForMediaRefusal(message) }
+            return
+        }
+        val outcome = gravixEndRefusedPublishes(message, GravixRegionMedia.MEDIA_NOT_ALLOWED)
+        val move = coroutineScope.launch { gravixMoveAndSettle(message, GravixRegionMedia.MEDIA_NOT_ALLOWED, outcome) }
+        // a disconnect may cancel the scope before the move runs: the enable waiting on the outcome still gets its answer
+        move.invokeOnCompletion { outcome.complete(false) }
     }
 
     /**
@@ -1952,8 +2348,15 @@ constructor(
      */
     override fun onFullReconnecting() {
         localParticipant.prepareForFullReconnect()
-        remoteParticipants.keys.toMutableSet() // copy keys to avoid concurrent modifications.
-            .forEach { identity -> handleParticipantDisconnect(identity) }
+        gravixCancelAbsent() // still kept: the new JoinResponse decides again
+        if (engine.gravixRecovery.keepParticipantsOnRejoin) {
+            // GRAVIX (2026-11-05, Flutter S5, field 2026-10-09: the app logged the host as "left" on every full rejoin)
+            gravixKeptForRejoin = remoteParticipants.keys.toSet()
+            remoteParticipants.values.toList().forEach { it.gravixUnsubscribeForRejoin() }
+        } else {
+            remoteParticipants.keys.toMutableSet() // copy keys to avoid concurrent modifications.
+                .forEach { identity -> handleParticipantDisconnect(identity) }
+        }
     }
 
     /**
@@ -1963,6 +2366,8 @@ constructor(
         // GRAVIX: a rejoin may have moved the session to another region
         gravixNoteConnectedUrl(RoomEvent.ConnectedUrlChangeReason.REJOIN)
         if (isFullReconnect) {
+            // GRAVIX (2026-11-05): kept participants: what the app chose goes to the new session (a resume syncs its state)
+            remoteParticipants.values.toList().forEach { it.gravixResendSubscriptions() }
             localParticipant.republishTracks()
         } else {
             val remoteParticipants = remoteParticipants.values.toList()

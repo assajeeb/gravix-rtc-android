@@ -73,11 +73,14 @@ public final class com/gravixcloud/rtc/GravixRecoveryOptions {
 	public static final field DEFAULT_ICE_TRANSPORT_WATCH_MS J
 	public static final field DEFAULT_NETWORK_CHANGE_WINDOW_MS J
 	public static final field DEFAULT_NETWORK_WAIT_PROBE_INTERVAL_MS J
+	public static final field DEFAULT_REJOIN_ABSENT_GRACE_MS J
+	public static final field DEFAULT_REJOIN_ABSENT_MOVE_GRACE_MS J
 	public static final field DEFAULT_RESUME_PRIMARY_DEADLINE_MS J
 	public static final field DEFAULT_SAME_URL_RETRY_DIAL_TIMEOUT_MS J
 	public static final field DEFAULT_SIGNAL_DIAL_CAP_MS J
 	public static final field DEFAULT_SLOW_TCP_FOR_MS J
 	public static final field DEFAULT_SLOW_TCP_RTT_MS J
+	public static final field LIKE_0_3 Lcom/gravixcloud/rtc/GravixRecoveryOptions;
 	public static final field UPSTREAM Lcom/gravixcloud/rtc/GravixRecoveryOptions;
 	public fun <init> ()V
 	public fun <init> (Z)V
@@ -105,7 +108,12 @@ public final class com/gravixcloud/rtc/GravixRecoveryOptions {
 	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJ)V
 	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZ)V
 	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZZ)V
-	public synthetic fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZZZ)V
+	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZZZZ)V
+	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZZZZZ)V
+	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZZZZZJ)V
+	public fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZZZZZJJ)V
+	public synthetic fun <init> (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZZZZZJJILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Z
 	public final fun component10 ()Z
 	public final fun component11 ()Z
@@ -124,29 +132,39 @@ public final class com/gravixcloud/rtc/GravixRecoveryOptions {
 	public final fun component23 ()J
 	public final fun component24 ()Z
 	public final fun component25 ()Z
+	public final fun component26 ()Z
+	public final fun component27 ()Z
+	public final fun component28 ()Z
+	public final fun component29 ()J
 	public final fun component3 ()Ljava/lang/Long;
+	public final fun component30 ()J
 	public final fun component4 ()Z
 	public final fun component5 ()Z
 	public final fun component6 ()Z
 	public final fun component7 ()Z
 	public final fun component8 ()Z
 	public final fun component9 ()Ljava/lang/Long;
-	public final fun copy (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZZ)Lcom/gravixcloud/rtc/GravixRecoveryOptions;
-	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/GravixRecoveryOptions;ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZZILjava/lang/Object;)Lcom/gravixcloud/rtc/GravixRecoveryOptions;
+	public final fun copy (ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZZZZZJJ)Lcom/gravixcloud/rtc/GravixRecoveryOptions;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/GravixRecoveryOptions;ZZLjava/lang/Long;ZZZZZLjava/lang/Long;ZZZLjava/lang/Long;ZLjava/lang/Long;ZZZJLjava/lang/Long;Ljava/lang/Long;JJZZZZZJJILjava/lang/Object;)Lcom/gravixcloud/rtc/GravixRecoveryOptions;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getFailoverNeedsEvidence ()Z
 	public final fun getFreshPeerFailedGraceMs ()Ljava/lang/Long;
 	public final fun getIceTransportWatchMs ()Ljava/lang/Long;
 	public final fun getIgnoreStaleSignalFailures ()Z
+	public final fun getKeepParticipantsOnRejoin ()Z
 	public final fun getLastGoodRegionList ()Z
 	public final fun getLeaveAbortsResumeWait ()Z
 	public final fun getMeasuredRegionFailover ()Z
 	public final fun getMediaRefusalFailover ()Z
 	public final fun getNetworkChangeWindowMs ()J
 	public final fun getNetworkWaitProbeIntervalMs ()Ljava/lang/Long;
+	public final fun getPublishFollowsReconnect ()Z
 	public final fun getRefusalEndsConnect ()Z
 	public final fun getRegionStrategyEnabled ()Z
+	public final fun getRejoinAbsentGraceMs ()J
+	public final fun getRejoinAbsentMoveGraceMs ()J
 	public final fun getRejoinClearsFullRequest ()Z
+	public final fun getRepublishKeepsNewSessionTracks ()Z
 	public final fun getRestartAbortsOnSignalLoss ()Z
 	public final fun getResumeAfterNetworkSocketError ()Z
 	public final fun getResumeOnPeerDisconnected ()Z
@@ -3012,9 +3030,11 @@ public final class com/gravixcloud/rtc/regions/GravixRegionMedia {
 	public static final field INSTANCE Lcom/gravixcloud/rtc/regions/GravixRegionMedia;
 	public static final field MEDIA_NOT_ALLOWED Ljava/lang/String;
 	public static final field REFUSAL_LIFE_MS J
+	public static final field ROOM_VIDEO_MEMORY_LIFE_MS J
 	public static final field VIDEO Ljava/lang/String;
 	public static final fun allows (Ljava/util/List;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)Z
 	public static final fun clear ()V
+	public static final fun getAutoDetect ()Z
 	public static final fun hintFromToken (Ljava/lang/String;)Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
 	public static final fun isMediaNotAllowed (Ljava/lang/Object;)Z
 	public static final fun joinMedia ()Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
@@ -3031,6 +3051,7 @@ public final class com/gravixcloud/rtc/regions/GravixRegionMedia {
 	public static final fun noteRefused (Ljava/lang/String;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)V
 	public static final fun promote (Lcom/gravixcloud/rtc/regions/GravixRoomMedia;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)Lcom/gravixcloud/rtc/regions/GravixRoomMedia;
 	public static final fun regionAllows (Lcom/gravixcloud/rtc/regions/GravixRegionUrl;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)Z
+	public static final fun setAutoDetect (Z)V
 	public static final fun skipWhy (Lcom/gravixcloud/rtc/regions/GravixRegionUrl;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)Ljava/lang/String;
 	public static final fun urlAllows (Ljava/lang/String;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;)Z
 	public static final fun urlAllows (Ljava/lang/String;Lcom/gravixcloud/rtc/regions/GravixRoomMedia;Ljava/util/List;)Z

@@ -8,7 +8,7 @@ region failover and session recovery built in.
 - Packages: `com.gravixcloud.rtc` (Kotlin `Room` API), `com.gravixcloud.rtc.service` (`GravixRoomService`, the
   Java-first API)
 - minSdk 24, signalling protocol v13
-- Status: **0.3.0**, on Maven Central (see `CHANGELOG.md`)
+- Status: **0.4.0**, on Maven Central (see `CHANGELOG.md`)
 
 The engine is a white-labelled fork of the Apache-2.0 LiveKit Android SDK (v2.28.2); see `NOTICE` and
 `tools/rebrand/README.md`.
@@ -28,7 +28,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.gravixcloud:gravix-rtc-android:0.3.0")
+    implementation("com.gravixcloud:gravix-rtc-android:0.4.0")
 }
 ```
 
@@ -235,6 +235,53 @@ list and a home region. During a call the session fails over to the next-nearest
 stops answering; `Room.connectedUrl` / `connectedRegion` and `RoomEvent.ConnectedUrlChanged` (Java:
 `onConnectedUrlChanged`) say where it is. `GravixRegionMeasurements.regionsMeasuredReport()` is the measurement
 as a JSON string for your analytics.
+
+## Audio-only regions
+
+Some regions carry audio only. You don't need to do anything for this:
+
+- A join goes to the fastest region, without any extra request, so joins are not slower.
+- If the room has live video, at join or later, the session moves once to the region video joins use: the nearest that
+  carries video, with hysteresis, so two near-equal regions don't flip. When the fastest measured region is audio-only
+  the other video regions are measured too, in the background and never on the join path. A muted camera does not count
+  until it is unmuted. If a reconnect holds the session when the video shows, the move is tried again for up to 60 s.
+- Remote participants stay through the move: no one is reported as left. A participant the new region doesn't know yet
+  gets 35 s to appear, unless their media already arrives (`GravixRecoveryOptions.rejoinAbsentMoveGraceMs`).
+- A microphone or camera publish the move interrupts goes out on the new session, and the call answers with that. A mute
+  during the move wins.
+- A room is remembered as having video only if it still had video when the session left, for 10 minutes at most. A rejoin
+  of a room with no video goes back to the fastest region.
+
+If you know the room type, you can declare it. This only decides where the join lands first; it does not turn off the
+move:
+
+```kotlin
+ConnectOptions(media = GravixRoomMedia.VIDEO) // lands on a region that carries video, so no reconnect
+ConnectOptions(media = GravixRoomMedia.AUDIO) // a voice room: lands on the fastest region
+```
+
+A room declared audio that does get video still moves once, so nobody is left without picture.
+
+A video room's first viewer on an audio-only region has picture slightly later because of the move. To treat every
+undeclared room as video instead, turn this off before the first join:
+
+```kotlin
+GravixRegionMedia.autoDetect = false
+```
+
+```java
+GravixRegionMedia.setAutoDetect(false);
+```
+
+### Back to 0.3.x behaviour
+
+Two settings, before the first join. The preset turns off only what 0.4.0 added; every recovery 0.3.x had stays on. It is
+not `GravixRecoveryOptions.UPSTREAM`, which turns those off too.
+
+```kotlin
+GravixRegionMedia.autoDetect = false // no room-video move, no move-first, no background probe, no room memory
+room.gravixRecovery = GravixRecoveryOptions.LIKE_0_3 // participants reported as left, publishes not followed, no kept tracks
+```
 
 ## Recovery switches
 

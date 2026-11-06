@@ -23,8 +23,11 @@ import com.gravixcloud.rtc.util.withDeadline
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.joinAll
@@ -179,6 +182,10 @@ object GravixRegionMeasurements {
     private val defaultListStore = GravixMemoryRegionListStore()
     private val defaultHttp: OkHttpClient by lazy { OkHttpClient() }
 
+    /** The per-network states with a background video probe running ([probeOtherVideoRegions]). */
+    private val videoProbing: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    private val videoProbes: MutableSet<Job> = ConcurrentHashMap.newKeySet()
+
     /** Time source; replaced by tests (virtual time). */
     @Volatile
     @VisibleForTesting
@@ -197,6 +204,9 @@ object GravixRegionMeasurements {
     @VisibleForTesting
     fun clear() {
         held = null
+        videoProbes.forEach { it.cancel() }
+        videoProbes.clear()
+        videoProbing.clear()
         memoryStates.clear()
         GravixRegionMedia.clear()
     }
@@ -501,12 +511,19 @@ object GravixRegionMeasurements {
         // GRAVIX (2026-10-21, per-region media): for each medium some measured region does not take, the same
         // hysteresis over the regions that do, with its own anchor, so joins of that medium do not flip between two
         // close regions either
-        val media = selectPerMedium(measured, state)
+        // The video regions the background probe measured lately stand in for a new measurement until the ttl, for video
+        // only: `best` and the audio pick are about the plan's regions.
+        val extraNow = if (state != null && state.videoExtraFreshAt(clock.wallMs())) {
+            state.videoExtra.filter { r -> measured.none { it.region == r.region } }.map { extraMeasurement(it) }
+        } else {
+            emptyList()
+        }
+        val media = selectPerMedium(measured, state, extraNow)
 
         val now = clock.wallMs()
         val result = GravixRegionMeasurementResult(
             measuredAtMs = now,
-            regions = measured,
+            regions = sortedRegions(measured + extraNow),
             best = best,
             bestSource = bestSource,
             elapsedMs = elapsed,
@@ -542,6 +559,8 @@ object GravixRegionMeasurements {
             challenger = if (selection != null) selection.challenger else state?.challenger,
             mediaAnchors = media.anchorsNext,
             mediaChallengers = media.challengersNext,
+            videoExtra = state?.videoExtra.orEmpty(),
+            videoExtraAtMs = state?.videoExtraAtMs,
         )
         memoryStates[sKey] = newState
         try {
@@ -558,7 +577,194 @@ object GravixRegionMeasurements {
             // a guess (or nothing) for this network: never over a fresh measured answer
             held = if (best != null) result else (if (currentHeld?.networkKey == netKey) currentHeld else null)
         }
+
+        // Owner, 2026-11-04 (R1): see probeOtherVideoRegions. Not awaited: joins never wait for it.
+        val fastestAudioOnly = measured.firstOrNull()?.takeIf { it.ok && !GravixRegionMedia.regionAllows(it.entry, GravixRoomMedia.VIDEO) }
+        if (GravixRegionMedia.autoDetect && fastestAudioOnly != null && !newState.videoExtraFreshAt(clock.wallMs())) {
+            val others = unmeasuredVideoRegions(dir, measured.map { it.region })
+            if (others.isNotEmpty() && videoProbing.add(sKey)) {
+                @Suppress("InjectDispatcher") // as measure(): the caller's dispatcher when it gives one
+                val probeDispatcher = o.dispatcher ?: Dispatchers.Default.limitedParallelism(1)
+                val prior = state?.liveMediaAnchor(GravixRoomMedia.VIDEO, now)
+                val job = CoroutineScope(SupervisorJob() + probeDispatcher).launch {
+                    probeOtherVideoRegions(o, http, others, sKey, netKey, runBudget, prior)
+                }
+                videoProbes.add(job)
+                job.invokeOnCompletion {
+                    videoProbing.remove(sKey)
+                    videoProbes.remove(job)
+                }
+            }
+        }
         return result
+    }
+
+    /** Waits until the background video probes running now have ended (tests). */
+    @VisibleForTesting
+    internal suspend fun videoProbesDone() {
+        while (videoProbes.isNotEmpty()) videoProbes.toList().joinAll()
+    }
+
+    /**
+     * The video regions of [dir] that [measured] leaves out, lowest `est_rtt_ms` first (no estimate last, list order
+     * breaks ties), at most [GravixRegionPlanning.MEASURE_CONCURRENCY]. Pure.
+     */
+    internal fun unmeasuredVideoRegions(dir: GravixRegionDirectory, measured: List<String>): List<GravixRegionUrl> =
+        dir.regions
+            .distinctBy { it.region }
+            .filter { it.region !in measured && GravixRegionMedia.regionAllows(it, GravixRoomMedia.VIDEO) }
+            .sortedBy { it.estRttMs?.toDouble() ?: Double.POSITIVE_INFINITY }
+            .take(GravixRegionPlanning.MEASURE_CONCURRENCY)
+
+    private fun extraMeasurement(r: RegionRtt) = GravixRegionMeasurement(
+        entry = GravixRegionUrl(r.region, r.url),
+        rttMs = r.rttMs,
+        samplesMs = emptyList(),
+        status = GravixRegionMeasurementStatus.OK,
+        source = GravixRegionCandidateSource.EXPLORE,
+    )
+
+    /** Measured fastest first, then unmeasured, then failed. */
+    private fun sortedRegions(regions: List<GravixRegionMeasurement>): List<GravixRegionMeasurement> =
+        regions.sortedWith { a, b ->
+            if (a.status != b.status) {
+                a.status.ordinal.compareTo(b.status.ordinal)
+            } else if (!a.ok) {
+                0
+            } else {
+                compareValues(a.rttMs, b.rttMs)
+            }
+        }
+
+    /**
+     * Owner, 2026-11-04 (R1): when the fastest measured region is audio-only, a shortlist still only names the video
+     * regions that looked near from the server's side. A Saudi user's shortlist was doh1, blr1, dac1: fra1 was never
+     * measured, and "the nearest region with video" was the nearer of two. This measures the other video regions once per
+     * shortlist ttl and network, with the same sampler, concurrency and total budget as a measurement, after it and never
+     * on a join path, and offers the results to the video choice by the same hysteresis. [priorAnchor] is the video anchor
+     * from before the measurement this follows: one that measurement has just created has no history a rival should have
+     * to beat twice. Never throws (except cancellation).
+     */
+    @Suppress("LongParameterList", "LongMethod", "TooGenericExceptionCaught", "CyclomaticComplexMethod")
+    private suspend fun probeOtherVideoRegions(
+        o: GravixRegionMeasureOptions,
+        http: OkHttpClient,
+        others: List<GravixRegionUrl>,
+        sKey: String,
+        netKey: String,
+        budgetMs: Long,
+        priorAnchor: RegionRtt?,
+    ) {
+        try {
+            val tracks = others.map { Track(it, GravixRegionCandidateSource.EXPLORE) }
+            val startedAt = clock.elapsedMs()
+            withTimeoutOrNull(budgetMs) {
+                coroutineScope {
+                    tracks.map { t ->
+                        launch {
+                            val sample = o.sampler ?: GravixRegionProbeClient(http).let { client ->
+                                t.client = client
+                                (o.samplerFor ?: GravixRegionSamplerFactory { defaultSampler(it) }).create(client)
+                            }
+                            for (i in 0 until SAMPLES) {
+                                val d = try {
+                                    sample.sample(t.entry)
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (_: Exception) {
+                                    null
+                                } ?: return@launch
+                                t.samples.add(d)
+                            }
+                        }
+                    }.joinAll()
+                }
+            }
+            tracks.forEach { it.client?.close() }
+
+            val state = memoryStates[sKey]
+            val h = current()
+            if (state == null || h == null || h.networkKey != netKey) return
+            val now = clock.wallMs()
+            val extra = tracks.filter { it.samples.size > 1 }.map { RegionRtt(it.entry.region, it.entry.url, it.samples.drop(1).min()) }
+            val measuredLine = tracks.joinToString(",") { t ->
+                "${t.entry.region}:${extra.firstOrNull { it.region == t.entry.region }?.rttMs ?: "none"}"
+            }
+            GravixRegionLog.step("videoProbe", "measured=$measuredLine ms=${clock.elapsedMs() - startedAt} budget=$budgetMs")
+
+            val regions = sortedRegions(h.regions + extra.filter { r -> h.regions.none { it.region == r.region } }.map { extraMeasurement(it) })
+            val takes = regions.filter { GravixRegionMedia.regionAllows(it.entry, GravixRoomMedia.VIDEO) }
+            val sel = GravixRegionSelector.select(
+                takes.map { GravixRegionSample(it.region, it.status.wireName, it.rttMs) },
+                anchor = priorAnchor?.region,
+                challenger = if (priorAnchor == null) null else state.mediaChallengers[GravixRoomMedia.VIDEO],
+                anchorKnown = priorAnchor != null,
+            )
+            val anchors = LinkedHashMap(state.mediaAnchors)
+            val challengers = LinkedHashMap(state.mediaChallengers)
+            val bestByMedia = LinkedHashMap(h.bestByMedia)
+            val reasons = LinkedHashMap(h.mediaSelectReason)
+            val heldChallengers = LinkedHashMap(h.mediaChallenger)
+            if (sel != null) {
+                val m = takes.first { it.region == sel.region }
+                val chosen = if (m.ok) {
+                    m
+                } else {
+                    m.copy(rttMs = priorAnchor?.rttMs, status = GravixRegionMeasurementStatus.OK, source = GravixRegionCandidateSource.CACHE)
+                }
+                bestByMedia[GravixRoomMedia.VIDEO] = chosen
+                reasons[GravixRoomMedia.VIDEO] = sel.reason
+                val ch = sel.challenger
+                if (ch != null) {
+                    heldChallengers[GravixRoomMedia.VIDEO] = ch
+                    challengers[GravixRoomMedia.VIDEO] = ch
+                } else {
+                    heldChallengers.remove(GravixRoomMedia.VIDEO)
+                    challengers.remove(GravixRoomMedia.VIDEO)
+                }
+                chosen.rttMs?.let { anchors[GravixRoomMedia.VIDEO] = MediaAnchor(RegionRtt(chosen.region, chosen.url, it), now) }
+                GravixRegionLog.step(
+                    "select",
+                    "media=video -> ${chosen.region} rtt=${chosen.rttMs} reason=${sel.reason.wireName} source=videoProbe" +
+                        (priorAnchor?.let { " anchor=${it.region}" } ?: "") +
+                        (ch?.let { " challenger=${it.region}x${it.wins}" } ?: ""),
+                )
+            }
+            val next = state.copy(videoExtra = extra, videoExtraAtMs = now, mediaAnchors = anchors, mediaChallengers = challengers)
+            memoryStates[sKey] = next
+            try {
+                o.store?.write(sKey, next.encode())
+            } catch (_: Exception) {
+                // the memory copy still serves this process
+            }
+            held = h.copy(regions = regions, bestByMedia = bestByMedia, mediaSelectReason = reasons, mediaChallenger = heldChallengers)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            GravixRegionLog.step("videoProbe", "fail reason=${e.javaClass.simpleName}")
+        }
+    }
+
+    /**
+     * The region a move for [media] goes to: the choice joins of that medium use, with its hysteresis, so two near-equal
+     * regions don't flip between steps (Gulf test: `select media=video -> blr1 reason=kept`, then the move -> dac1, 2 ms
+     * ahead). Null when nothing is measured for it or it doesn't take [media] now (it refused lately): the failover order
+     * decides then.
+     */
+    internal fun mediaMoveTarget(media: GravixRoomMedia): GravixRegionMeasurement? {
+        val chosen = current()?.bestByMedia?.get(media) ?: return null
+        return chosen.takeIf { it.ok && GravixRegionMedia.regionAllows(it.entry, media) }
+    }
+
+    /** Why [mediaMoveTarget] chose its region, for the log: its RTT, how it was chosen and the fastest region taking [media]. */
+    internal fun mediaMoveWhy(media: GravixRoomMedia): String {
+        val m = current()
+        val chosen = mediaMoveTarget(media)
+        if (m == null || chosen == null) return "why=failover-order"
+        val fastest = m.regions.firstOrNull { it.ok && GravixRegionMedia.regionAllows(it.entry, media) }
+        return "rtt=${chosen.rttMs} why=${m.mediaSelectReason[media]?.wireName ?: "measured"}" +
+            (fastest?.let { " fastest=${it.region} rtt=${it.rttMs}" } ?: "") +
+            " measured=${m.regions.size}"
     }
 
     private class MediaSelection(
@@ -570,7 +776,11 @@ object GravixRegionMeasurements {
     )
 
     /** The per-medium selection of one run (see the call in [measureImpl]). */
-    private fun selectPerMedium(measured: List<GravixRegionMeasurement>, state: NetworkState?): MediaSelection {
+    private fun selectPerMedium(
+        measured: List<GravixRegionMeasurement>,
+        state: NetworkState?,
+        videoExtra: List<GravixRegionMeasurement>,
+    ): MediaSelection {
         val nowAtStart = clock.wallMs()
         val bestByMedia = LinkedHashMap<GravixRoomMedia, GravixRegionMeasurement>()
         val reasons = LinkedHashMap<GravixRoomMedia, GravixRegionSelectReason>()
@@ -578,8 +788,10 @@ object GravixRegionMeasurements {
         val anchorsNext = LinkedHashMap(state?.mediaAnchors.orEmpty())
         val challengersNext = LinkedHashMap(state?.mediaChallengers.orEmpty())
         for (media in GravixRoomMedia.entries) {
-            val takes = measured.filter { GravixRegionMedia.regionAllows(it.entry, media) }
-            if (takes.size == measured.size || takes.isEmpty()) continue
+            val extra = if (media == GravixRoomMedia.VIDEO) videoExtra else emptyList()
+            val all = measured + extra
+            val takes = sortedRegions(all.filter { GravixRegionMedia.regionAllows(it.entry, media) })
+            if (takes.size == all.size || takes.isEmpty()) continue
             val mAnchor = state?.liveMediaAnchor(media, nowAtStart)
             val sel = GravixRegionSelector.select(
                 takes.map { GravixRegionSample(it.region, it.status.wireName, it.rttMs) },
@@ -937,8 +1149,14 @@ object GravixRegionMeasurements {
         // atMs}}` and `mediaChallengers: {video: {region, wins}}` (the same keys in every SDK)
         val mediaAnchors: Map<GravixRoomMedia, MediaAnchor> = emptyMap(),
         val mediaChallengers: Map<GravixRoomMedia, GravixRegionChallenger> = emptyMap(),
+        // GRAVIX (2026-11-05, R1): video regions outside the plan, measured in the background because the fastest region
+        // is audio-only (probeOtherVideoRegions): wire `videoExtra` / `videoExtraAtMs`
+        val videoExtra: List<RegionRtt> = emptyList(),
+        val videoExtraAtMs: Long? = null,
     ) {
         fun freshAt(nowMs: Long) = nowMs - measuredAtMs <= ttlMs
+
+        fun videoExtraFreshAt(nowMs: Long) = videoExtraAtMs != null && nowMs - videoExtraAtMs <= ttlMs
 
         fun liveMediaAnchor(media: GravixRoomMedia, nowMs: Long): RegionRtt? =
             mediaAnchors[media]?.takeIf { nowMs - it.atMs <= GravixRegionSelector.ANCHOR_LIFE_MS }?.rtt
@@ -967,6 +1185,10 @@ object GravixRegionMeasurements {
             }
             if (mediaChallengers.isNotEmpty()) {
                 put("mediaChallengers", buildJsonObject { for ((k, c) in mediaChallengers) put(k.wireName, c.toJson()) })
+            }
+            if (videoExtraAtMs != null) {
+                put("videoExtra", buildJsonArray { videoExtra.forEach { add(it.toJson()) } })
+                put("videoExtraAtMs", videoExtraAtMs)
             }
         }.toString()
 
@@ -1002,6 +1224,8 @@ object GravixRegionMeasurements {
                             val medium = GravixRoomMedia.fromWireName(k) ?: return@mapNotNull null
                             medium to (GravixRegionChallenger.fromJson(v) ?: return@mapNotNull null)
                         }.toMap(),
+                        videoExtra = (m["videoExtra"] as? JsonArray).orEmpty().mapNotNull { RegionRtt.from(it) },
+                        videoExtraAtMs = (m["videoExtraAtMs"] as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull,
                     )
                 }
             } catch (_: Exception) {

@@ -29,12 +29,11 @@ import com.gravixcloud.rtc.test.mock.dagger.TestCoroutinesModule
 import com.gravixcloud.rtc.test.mock.dagger.TestGravixRtcComponent
 import com.gravixcloud.rtc.util.flow
 import com.gravixcloud.rtc.util.toOkioByteString
+import gravixcloud.GravixcloudRtc
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.launch
-import gravixcloud.GravixcloudRtc
-import org.webrtc.PeerConnection
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
@@ -43,6 +42,7 @@ import org.junit.After
 import org.junit.Before
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.webrtc.PeerConnection
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -55,6 +55,7 @@ abstract class MockE2ETest : BaseTest() {
 
     @Before
     fun mocksSetup() {
+        com.gravixcloud.rtc.noise.GravixNoiseSuppression.gravixMicWaitsForConfigure = false
         context = ApplicationProvider.getApplicationContext()
         component = DaggerTestGravixRtcComponent
             .factory()
@@ -71,6 +72,7 @@ abstract class MockE2ETest : BaseTest() {
     @After
     fun tearDown() {
         room.release()
+        com.gravixcloud.rtc.noise.GravixNoiseSuppression.gravixMicWaitsForConfigure = true
     }
 
     open suspend fun connect(joinResponse: GravixcloudRtc.SignalResponse = TestData.JOIN) {

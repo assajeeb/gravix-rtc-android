@@ -155,6 +155,23 @@ package com.gravixcloud.rtc
  *   (401/403, "app user limit reached", "app plan limit reached") stays final, and a region failover still comes
  *   first. Off: the connect fails at once, as before. The Flutter SDK 0.7.2's `ConnectOptions.joinRetries` for this
  *   case.
+ * @property republishKeepsNewSessionTracks GRAVIX (2026-11-05): a full reconnect's republish leaves alone a track
+ *   already published on the new session (a publish that landed between the JoinResponse and the republish). Off: it is
+ *   sent again, the SFU does not answer the duplicate, and the publication is lost at the 20 s publish deadline. The
+ *   Flutter SDK 0.8.3's option of the same name.
+ * @property publishFollowsReconnect GRAVIX (2026-11-05): a microphone, camera or screen share publish that a full
+ *   reconnect interrupts, or that starts between two sessions, goes out on the new session, and the call answers with
+ *   that. A later `setMicrophoneEnabled(false)` (or camera, or screen share) wins, also over the reconnect's republish.
+ *   Off: such a publish fails (when the old socket's close is seen, else at the 20 s deadline) and the app must ask again.
+ * @property keepParticipantsOnRejoin GRAVIX (2026-11-05): a full reconnect keeps the remote participants, the same
+ *   objects with no [com.gravixcloud.rtc.events.RoomEvent.ParticipantDisconnected]. Their tracks belong to the old
+ *   connection, so they are unsubscribed; the new connection's tracks arrive on the same publications. The new
+ *   JoinResponse decides who left; see [rejoinAbsentGraceMs]. Off: everyone is reported as left on every full reconnect.
+ * @property rejoinAbsentGraceMs how long a participant kept across a rejoin on the same server, but not named by its
+ *   JoinResponse, has to appear before it is reported as left (5 s).
+ * @property rejoinAbsentMoveGraceMs the same for a rejoin that landed on another server (a region move, a failover). The
+ *   room may be new there, and the server's guaranteed repair is its 30 s relay sweep, so this is longer (35 s). A
+ *   participant whose media arrives needs no more proof and is not dropped.
  */
 data class GravixRecoveryOptions @JvmOverloads constructor(
     val measuredRegionFailover: Boolean = true,
@@ -182,6 +199,11 @@ data class GravixRecoveryOptions @JvmOverloads constructor(
     val slowTcpForMs: Long = DEFAULT_SLOW_TCP_FOR_MS,
     val mediaRefusalFailover: Boolean = true,
     val retryServerRestart: Boolean = true,
+    val republishKeepsNewSessionTracks: Boolean = true,
+    val publishFollowsReconnect: Boolean = true,
+    val keepParticipantsOnRejoin: Boolean = true,
+    val rejoinAbsentGraceMs: Long = DEFAULT_REJOIN_ABSENT_GRACE_MS,
+    val rejoinAbsentMoveGraceMs: Long = DEFAULT_REJOIN_ABSENT_MOVE_GRACE_MS,
 ) {
     /** True when any region switch is on (the engine then consults the Gravix region strategy). */
     val regionStrategyEnabled: Boolean
@@ -197,6 +219,8 @@ data class GravixRecoveryOptions @JvmOverloads constructor(
         const val DEFAULT_ICE_TRANSPORT_WATCH_MS = 5000L
         const val DEFAULT_SLOW_TCP_RTT_MS = 1000L
         const val DEFAULT_SLOW_TCP_FOR_MS = 10_000L
+        const val DEFAULT_REJOIN_ABSENT_GRACE_MS = 5000L
+        const val DEFAULT_REJOIN_ABSENT_MOVE_GRACE_MS = 35_000L
 
         /** [retryServerRestart]: the wait before each retry (one entry per retry). */
         internal val SERVER_RESTART_RETRY_DELAYS_MS = longArrayOf(500L, 1500L)
@@ -204,6 +228,18 @@ data class GravixRecoveryOptions @JvmOverloads constructor(
         /** [retryServerRestart]: a gateway error (502/503/504) with no reason text. */
         @Suppress("MagicNumber") // HTTP statuses
         internal fun isServerRestart(status: Int?, hadReason: Boolean): Boolean = status in 502..504 && !hadReason
+
+        /**
+         * What 0.3.x did on a full reconnect: everything 0.4.0 added off, every recovery 0.3.x had still on. Going back to
+         * 0.3.x takes this and [com.gravixcloud.rtc.regions.GravixRegionMedia.autoDetect] = false. Not [UPSTREAM], which also
+         * turns off the recovery 0.3.x had.
+         */
+        @JvmField
+        val LIKE_0_3 = GravixRecoveryOptions(
+            republishKeepsNewSessionTracks = false,
+            publishFollowsReconnect = false,
+            keepParticipantsOnRejoin = false,
+        )
 
         /** Everything off: the upstream engine's behaviour. */
         @JvmField
@@ -230,6 +266,9 @@ data class GravixRecoveryOptions @JvmOverloads constructor(
             iceTransportWatchMs = null,
             mediaRefusalFailover = false,
             retryServerRestart = false,
+            republishKeepsNewSessionTracks = false,
+            publishFollowsReconnect = false,
+            keepParticipantsOnRejoin = false,
         )
     }
 }

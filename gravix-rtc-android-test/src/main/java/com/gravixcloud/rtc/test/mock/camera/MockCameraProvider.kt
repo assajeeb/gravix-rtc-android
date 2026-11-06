@@ -78,13 +78,31 @@ class MockCameraEnumerator : CameraEnumerator {
 }
 
 class MockCameraVideoCapturer : CameraVideoCapturer {
+    companion object {
+        /** How many times any camera was opened. */
+        @Volatile
+        var captureStarts = 0
+
+        /** How many times any camera was closed. */
+        @Volatile
+        var captureStops = 0
+
+        /** Whether a camera is open now. */
+        @Volatile
+        var capturing = false
+    }
+
     override fun initialize(p0: SurfaceTextureHelper?, p1: Context?, p2: CapturerObserver?) {
     }
 
     override fun startCapture(p0: Int, p1: Int, p2: Int) {
+        captureStarts++
+        capturing = true
     }
 
     override fun stopCapture() {
+        captureStops++
+        capturing = false
     }
 
     override fun changeCaptureFormat(p0: Int, p1: Int, p2: Int) {

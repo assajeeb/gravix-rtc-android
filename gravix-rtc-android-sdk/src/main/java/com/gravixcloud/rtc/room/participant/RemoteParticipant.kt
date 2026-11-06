@@ -17,9 +17,6 @@
 
 package com.gravixcloud.rtc.room.participant
 
-import dagger.assisted.Assisted
-import dagger.assisted.AssistedFactory
-import dagger.assisted.AssistedInject
 import com.gravixcloud.rtc.dagger.InjectionNames
 import com.gravixcloud.rtc.events.ParticipantEvent
 import com.gravixcloud.rtc.events.RoomEvent
@@ -34,12 +31,15 @@ import com.gravixcloud.rtc.room.track.TrackException
 import com.gravixcloud.rtc.util.CloseableCoroutineScope
 import com.gravixcloud.rtc.util.GxLog
 import com.gravixcloud.rtc.webrtc.RTCStatsGetter
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedFactory
+import dagger.assisted.AssistedInject
+import gravixcloud.GravixcloudModels
+import gravixcloud.GravixcloudRtc
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import gravixcloud.GravixcloudModels
-import gravixcloud.GravixcloudRtc
 import org.webrtc.AudioTrack
 import org.webrtc.MediaStreamTrack
 import org.webrtc.RtpReceiver
@@ -49,6 +49,7 @@ import javax.inject.Named
 /**
  * A representation of a remote participant.
  */
+@Suppress("TooManyFunctions") // the kept-participant steps of a full rejoin belong with the publications
 class RemoteParticipant(
     sid: Sid,
     identity: Identity? = null,
@@ -194,6 +195,7 @@ class RemoteParticipant(
 
         addTrackPublication(publication)
         track.start()
+        publication.gravixResendSettingsIfKept()
 
         // TODO: how does mediatrack send ended event?
 
@@ -221,6 +223,44 @@ class RemoteParticipant(
             eventBus.postEvent(ParticipantEvent.TrackUnpublished(this, publication), scope)
         }
         publication.track = null
+    }
+
+    /**
+     * GRAVIX (2026-11-05, keepParticipantsOnRejoin): a full rejoin. The tracks belong to the old subscriber connection, so
+     * they are unsubscribed; the publications stay, and the new connection's tracks arrive on them.
+     */
+    internal fun gravixUnsubscribeForRejoin() {
+        for (publication in trackPublications.values.toList()) {
+            if (publication !is RemoteTrackPublication) continue
+            val track = publication.track ?: continue
+            @Suppress("SwallowedException")
+            try {
+                track.stop()
+            } catch (e: Exception) {
+                // track may already be disposed, ignore.
+            }
+            internalListener?.onTrackUnsubscribed(track, publication, this)
+            eventBus.postEvent(ParticipantEvent.TrackUnsubscribed(this, track, publication), scope)
+            publication.track = null
+            publication.gravixSettingsToResend = true
+        }
+    }
+
+    /** GRAVIX (2026-11-05): after a full rejoin, the subscriptions the app chose go to the new session. */
+    internal fun gravixResendSubscriptions() {
+        for (publication in trackPublications.values.toList()) {
+            (publication as? RemoteTrackPublication)?.gravixResendSubscription()
+        }
+    }
+
+    /**
+     * GRAVIX (2026-11-05): the server still holds this participant's subscriptions and won't send their tracks a second
+     * time. Asks for them again; costs one renegotiation.
+     */
+    internal fun gravixPullAgain() {
+        for (publication in trackPublications.values.toList()) {
+            if (publication.track == null) (publication as RemoteTrackPublication).gravixPullAgain(coroutineScope)
+        }
     }
 
     internal fun onSubscriptionPermissionUpdate(subscriptionPermissionUpdate: GravixcloudRtc.SubscriptionPermissionUpdate) {

@@ -74,7 +74,10 @@ public class GravixRegionsJavaApiTest {
         assertEquals("wss://x.example.test",
                 GravixRegionMeasurements.resolveConnectUrl("wss://x.example.test", candidates, null, GravixRoomMedia.VIDEO));
         assertNull(GravixRegionMeasurements.pickRegion("wss://sgp1.example.test", candidates, null, null, GravixRoomMedia.AUDIO));
+        assertEquals(GravixRoomMedia.AUDIO, GravixRegionMedia.joinMedia());
+        GravixRegionMedia.setAutoDetect(false);
         assertEquals(GravixRoomMedia.VIDEO, GravixRegionMedia.joinMedia());
+        GravixRegionMedia.setAutoDetect(true);
         assertEquals(GravixRoomMedia.AUDIO, GravixRegionMedia.joinMedia(GravixRoomMedia.AUDIO, false, null));
         assertEquals("audio", GravixRoomMedia.AUDIO.getWireName());
         assertEquals(true, GravixRegionMedia.isMediaNotAllowed("media_not_allowed"));

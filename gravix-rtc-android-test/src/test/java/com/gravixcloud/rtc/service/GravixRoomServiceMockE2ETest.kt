@@ -255,8 +255,9 @@ class GravixRoomServiceMockE2ETest : MockE2ETest() {
         answer(full, TestData.JOIN) // the remote participant left while we were away
         connectPeerConnection()
         advanceUntilIdle()
+        // GRAVIX (2026-11-05): the JoinResponse not naming someone starts their grace, so the word comes after "reconnected"
         assertEquals(1, calls.count { it == "offline:$remoteUid" })
-        assertTrue(calls.toString(), calls.indexOf("offline:$remoteUid") < calls.indexOf("reconnected:false"))
+        assertTrue(calls.toString(), calls.indexOf("offline:$remoteUid") > calls.indexOf("reconnected:false"))
     }
 
     @Test

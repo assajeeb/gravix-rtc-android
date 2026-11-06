@@ -29,10 +29,13 @@ import com.gravixcloud.rtc.dagger.CapabilitiesGetter
 import com.gravixcloud.rtc.dagger.InjectionNames
 import com.gravixcloud.rtc.events.ParticipantEvent
 import com.gravixcloud.rtc.noise.GravixNoiseSuppression
+import com.gravixcloud.rtc.regions.GravixRegionLog
+import com.gravixcloud.rtc.regions.GravixRegionMedia
 import com.gravixcloud.rtc.room.ClientProtocolVersion
 import com.gravixcloud.rtc.room.ConnectionState
 import com.gravixcloud.rtc.room.DefaultsManager
 import com.gravixcloud.rtc.room.GravixOpusAnswer
+import com.gravixcloud.rtc.room.GravixSessionReplacedException
 import com.gravixcloud.rtc.room.RTCEngine
 import com.gravixcloud.rtc.room.Room
 import com.gravixcloud.rtc.room.SenderTransceiverHandle
@@ -75,6 +78,7 @@ import gravixcloud.GravixcloudRtc
 import gravixcloud.GravixcloudRtc.AddTrackRequest
 import gravixcloud.GravixcloudRtc.SimulcastCodec
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
@@ -93,6 +97,7 @@ import org.webrtc.SurfaceTextureHelper
 import org.webrtc.VideoCapturer
 import org.webrtc.VideoProcessor
 import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Named
 import kotlin.coroutines.coroutineContext
@@ -304,6 +309,13 @@ internal constructor(
      * @see Room.videoTrackCaptureDefaults
      * @see Room.videoTrackPublishDefaults
      * @return true if the change was successful, or false if it failed.
+     *
+     * GRAVIX (2026-11-04): on a region known not to carry video the session first moves once to the fastest measured
+     * region that does, and the camera is published there. The call returns when that is done: true when the camera
+     * is live, false at once when no region takes video, or the move or publish failed, or
+     * [com.gravixcloud.rtc.GravixRecoveryOptions.mediaRefusalFailover] is off (also posting
+     * [com.gravixcloud.rtc.events.ParticipantEvent.LocalTrackPublicationFailed] with `media_not_allowed`). A server
+     * refusal of a region thought to carry video (a stale list) ends the same way, without the 20 s publish deadline.
      */
     @Throws(TrackException.PublishException::class)
     suspend fun setCameraEnabled(enabled: Boolean): Boolean {
@@ -368,16 +380,139 @@ internal constructor(
     var gravixCameraWanted: Boolean = false
         internal set
 
+    /**
+     * GRAVIX (2026-11-04): what became of the camera after the last media refusal or media move: true when it is
+     * published on the region the session moved to. An enable whose publish that refusal ended answers with this.
+     */
+    @Volatile
+    internal var gravixRefusalOutcome: Deferred<Boolean>? = null
+
+    /**
+     * GRAVIX (2026-11-04): asked before a video publish whether it may go on (the Room moves first from a region known
+     * not to carry video). The argument: a screen share. False: the publish fails at once.
+     */
+    internal var gravixVideoPublishGate: (suspend (Boolean) -> Boolean)? = null
+
+    /**
+     * GRAVIX (2026-11-05): the sources the app last turned off. Set before the publish lock is taken, so a tap counts at
+     * once: a publish a full reconnect interrupted, and the reconnect's republish, must not go out after it. Cleared by
+     * the next enable or publish of the source.
+     */
+    private val gravixOffAsked: MutableSet<Track.Source> = ConcurrentHashMap.newKeySet()
+
+    /**
+     * GRAVIX (2026-11-05): waits for the running full reconnect to end, its republish included. True: connected on a new
+     * session. False: the room is gone or going. Called holding the source's publish lock; the republish does not take it.
+     */
+    internal var gravixSessionBack: (suspend () -> Boolean)? = null
+
+    /** GRAVIX (2026-11-05): how many sessions this participant has left: a call waiting since before one isn't for the next. */
+    @Volatile
+    private var gravixSessionsLeft = 0
+
+    /** A publish whose session goes on being replaced stops trying at this many. */
+    private val gravixPublishRetries = 3
+
+    /** GRAVIX (2026-11-05): a publish lost its session. True: it goes out on the new one. Logs why. */
+    private suspend fun gravixPublishAgainAfterReplaced(source: Track.Source, tries: Int): Boolean {
+        val name = source.name.lowercase()
+        if (tries >= gravixPublishRetries) {
+            GravixRegionLog.step("mediaRepublish", "$name fail reason=session-kept-being-replaced tries=$tries")
+            return false
+        }
+        GravixRegionLog.step("mediaRepublish", "$name wait reason=interrupted")
+        if (gravixSessionBack?.invoke() != true) {
+            GravixRegionLog.step("mediaRepublish", "$name fail reason=no-session")
+            return false
+        }
+        if (source in gravixOffAsked) {
+            GravixRegionLog.step("mediaRepublish", "$name skip reason=not-wanted")
+            return false
+        }
+        GravixRegionLog.step("mediaRepublish", "$name start reason=interrupted")
+        return true
+    }
+
+    /**
+     * GRAVIX (2026-11-05): the unmuted video this user has now, also what a running reconnect holds for its republish.
+     * A source turned off during that reconnect does not count.
+     */
+    internal fun gravixHasLiveVideo(): Boolean =
+        (localTrackPublications + republishes.orEmpty()).any { it.kind == Track.Kind.VIDEO && !it.muted && it.source !in gravixOffAsked }
+
+    /** GRAVIX (2026-11-04): the republish after a media move; it IS what an enable waits for, so it never waits itself. */
+    internal suspend fun gravixEnableCameraAfterMove(): Boolean = setTrackEnabled(Track.Source.CAMERA, true, awaitMediaMove = false)
+
     private suspend fun setTrackEnabled(
         source: Track.Source,
         enabled: Boolean,
         screenCaptureParams: ScreenCaptureParams? = null,
+        awaitMediaMove: Boolean = true,
     ): Boolean {
         // GRAVIX (2026-10-21): what the app asked for last, so a media move can publish the camera again
         if (source == Track.Source.CAMERA) gravixCameraWanted = enabled
+        // the SDK's own enable after a move doesn't count as the app asking: a tap off stays the last word
+        if (enabled && awaitMediaMove) gravixOffAsked.remove(source)
+        if (!enabled) gravixOffAsked.add(source)
+        var success = false
+        try {
+            success = gravixSetTrackEnabledNow(source, enabled, screenCaptureParams, awaitMediaMove, gravixSessionsLeft)
+        } finally {
+            // the call fails, so the camera isn't wanted any more: a later media move must not turn it on
+            if (!success && enabled && source == Track.Source.CAMERA) gravixCameraWanted = false
+        }
+        return success
+    }
+
+    /**
+     * GRAVIX (2026-11-05): this call waited, for the reconnect or the source's lock, and is out of date: an on whose session
+     * has been left or whose last tap was off, or an off with a later on behind it.
+     */
+    private fun gravixCallIsStale(source: Track.Source, enabled: Boolean, sessionsLeftAtCall: Int): Boolean {
+        val why = when {
+            enabled && sessionsLeftAtCall != gravixSessionsLeft -> "session-left"
+            enabled && source in gravixOffAsked -> "not-wanted"
+            !enabled && source !in gravixOffAsked -> "turned-on-since"
+            else -> return false
+        }
+        GravixRegionLog.step("mediaRepublish", "${source.name.lowercase()} skip reason=$why")
+        return true
+    }
+
+    private fun gravixNoSessionFor(source: Track.Source): Boolean =
+        engine.connectionState == ConnectionState.DISCONNECTED && getTrackPublication(source) == null && !engine.gravixReconnecting
+
+    private suspend fun gravixSetTrackEnabledNow(
+        source: Track.Source,
+        enabled: Boolean,
+        screenCaptureParams: ScreenCaptureParams?,
+        awaitMediaMove: Boolean,
+        sessionsLeftAtCall: Int,
+    ): Boolean {
+        val follows = engine.gravixRecovery.publishFollowsReconnect
+        // GRAVIX (2026-11-05): no session: nothing opens only to be closed again (the second half of a call opening both,
+        // after a leave). An enable in the middle of connecting goes on as before.
+        // An existing publication, or a reconnect running, is a session in trouble and not no session (0.3.2 unmuted here).
+        if (enabled && follows && gravixNoSessionFor(source)) {
+            GravixRegionLog.step("mediaRepublish", "${source.name.lowercase()} fail reason=no-session")
+            return false
+        }
+        // GRAVIX (2026-11-05): the running reconnect holds this source for its republish, with this very track. A second
+        // publish of it would send a cid that is pending or answered: wait, then this finds the publication. Outside the
+        // lock: nothing here may hold what the reconnect's end depends on.
+        if (enabled && engine.gravixRecovery.publishFollowsReconnect && republishes.orEmpty().any { it.source == source }) {
+            GravixRegionLog.step("mediaRepublish", "${source.name.lowercase()} wait reason=held-by-reconnect")
+            if (gravixSessionBack?.invoke() != true) {
+                GravixRegionLog.step("mediaRepublish", "${source.name.lowercase()} fail reason=no-session")
+                return false
+            }
+        }
+        val refusalBefore = gravixRefusalOutcome
         var success = false
         val pubLock = sourcePubLocks[source]!!
         pubLock.withLock {
+            // GRAVIX (2026-11-05): off, on, off: this on waited, for the reconnect or this lock, and the last tap was off
+            if (follows && gravixCallIsStale(source, enabled, sessionsLeftAtCall)) return@withLock
             val pub = getTrackPublication(source)
             if (enabled) {
                 if (pub != null) {
@@ -392,16 +527,25 @@ internal constructor(
                     when (source) {
                         Track.Source.CAMERA -> {
                             val track = getOrCreateDefaultVideoTrack()
+                            var captureOpen = false
                             try {
-                                track.start()
-                                track.startCapture()
-                                // A concurrent publish outside the pub lock may already own this
-                                // shared track, in which case it is live and the enable succeeded.
-                                success = publishVideoTrack(track) || isTrackPublished(track)
+                                // GRAVIX (2026-11-05): the move first: the camera isn't opened until there is a session to send it on
+                                if (gravixVideoPublishMayGoOn(track, null) && !(follows && gravixCallIsStale(source, true, sessionsLeftAtCall))) {
+                                    captureOpen = true
+                                    track.start()
+                                    track.startCapture()
+                                    // A concurrent publish outside the pub lock may already own this
+                                    // shared track, in which case it is live and the enable succeeded.
+                                    success = gravixPublishVideoTrackNow(
+                                        track,
+                                        VideoTrackPublishOptions(null, videoTrackPublishDefaults),
+                                        null,
+                                    ) || isTrackPublished(track)
+                                }
                             } finally {
                                 // Cancellation unwinds without assigning success, so ownership is
                                 // rechecked here before tearing the track down.
-                                if (!success && !isTrackPublished(track)) {
+                                if (captureOpen && !success && !isTrackPublished(track)) {
                                     track.stopCapture()
                                     track.stop()
                                 }
@@ -411,13 +555,14 @@ internal constructor(
                         Track.Source.MICROPHONE -> {
                             // GRAVIX (noise suppression): the microphone starts with the processing it implies
                             GravixNoiseSuppression.awaitConfigured()
+                            if (follows && gravixCallIsStale(source, true, sessionsLeftAtCall)) return@withLock
                             val track = getOrCreateDefaultAudioTrack()
                             try {
                                 track.prewarm()
                                 track.start()
                                 // A concurrent publish outside the pub lock may already own this
                                 // shared track, in which case it is live and the enable succeeded.
-                                success = publishAudioTrack(track) || isTrackPublished(track)
+                                success = gravixPublishAudioNow(track) || isTrackPublished(track)
                             } finally {
                                 // Cancellation unwinds without assigning success, so ownership is
                                 // rechecked here before tearing the track down.
@@ -448,8 +593,10 @@ internal constructor(
                                 }
                             try {
                                 track.startForegroundService(screenCaptureParams.notificationId, screenCaptureParams.notification)
-                                track.startCapture()
-                                success = publishVideoTrack(track, options = VideoTrackPublishOptions(null, screenShareTrackPublishDefaults))
+                                if (gravixVideoPublishMayGoOn(track, null) && !(follows && gravixCallIsStale(source, true, sessionsLeftAtCall))) {
+                                    track.startCapture()
+                                    success = gravixPublishVideoTrackNow(track, VideoTrackPublishOptions(null, screenShareTrackPublishDefaults), null)
+                                }
                             } finally {
                                 if (!success) {
                                     // stop() releases the screen capture service binding as well.
@@ -485,6 +632,12 @@ internal constructor(
             return@withLock
         }
 
+        // GRAVIX (2026-11-04): this publish was refused while it ran and the lock is free for the republish: the
+        // enable's answer is whether the camera is up after the media move
+        if (!success && enabled && awaitMediaMove && source == Track.Source.CAMERA) {
+            val refusal = gravixRefusalOutcome
+            if (refusal != null && refusal !== refusalBefore) success = refusal.await()
+        }
         return success
     }
 
@@ -503,6 +656,23 @@ internal constructor(
         ).copy(preconnect = defaultsManager.isPrerecording),
         publishListener: PublishListener? = null,
     ): Boolean {
+        gravixOffAsked.remove(options.source ?: Track.Source.MICROPHONE)
+        return gravixPublishAudioNow(track, options, publishListener)
+    }
+
+    /**
+     * [publishAudioTrack] as the SDK calls it: it does not count as the app asking for the source. [followReconnect]
+     * false: the reconnect's own republish, which must not wait for itself.
+     */
+    private suspend fun gravixPublishAudioNow(
+        track: LocalAudioTrack,
+        options: AudioTrackPublishOptions = AudioTrackPublishOptions(
+            null,
+            audioTrackPublishDefaults,
+        ).copy(preconnect = defaultsManager.isPrerecording),
+        publishListener: PublishListener? = null,
+        followReconnect: Boolean = true,
+    ): Boolean {
         if (track.isDisposed) {
             GxLog.w { "Attempting to publish a disposed track, ignoring." }
             return false
@@ -517,18 +687,20 @@ internal constructor(
         )
         var publication: LocalTrackPublication? = null
         try {
-            publication = publishTrackImpl(
-                track = track,
-                options = options,
-                requestConfig = {
-                    disableDtx = !options.dtx || options.stereo
-                    disableRed = !options.red
-                    addAllAudioFeatures(options.getFeaturesList())
-                    source = options.source?.toProto() ?: GravixcloudModels.TrackSource.MICROPHONE
-                },
-                encodings = encodings,
-                publishListener = publishListener,
-            )
+            publication = gravixPublishFollowingReconnect(track, options.source ?: Track.Source.MICROPHONE, publishListener, followReconnect) {
+                publishTrackImpl(
+                    track = track,
+                    options = options,
+                    requestConfig = {
+                        disableDtx = !options.dtx || options.stereo
+                        disableRed = !options.red
+                        addAllAudioFeatures(options.getFeaturesList())
+                        source = options.source?.toProto() ?: GravixcloudModels.TrackSource.MICROPHONE
+                    },
+                    encodings = encodings,
+                    publishListener = publishListener,
+                )
+            }
         } catch (e: TrackException.PublishException) {
             GxLog.e(e) { "Error thrown when publishing track:" }
         }
@@ -559,6 +731,50 @@ internal constructor(
             if (track.options.isScreencast) screenShareTrackPublishDefaults else videoTrackPublishDefaults,
         ),
         publishListener: PublishListener? = null,
+    ): Boolean {
+        gravixOffAsked.remove(resolveVideoTrackSource(track, options))
+        return gravixGatedPublishVideo(track, options, publishListener)
+    }
+
+    /** [publishVideoTrack] as the SDK calls it: it does not count as the app asking for the source. */
+    private suspend fun gravixGatedPublishVideo(
+        track: LocalVideoTrack,
+        options: VideoTrackPublishOptions = VideoTrackPublishOptions(
+            null,
+            if (track.options.isScreencast) screenShareTrackPublishDefaults else videoTrackPublishDefaults,
+        ),
+        publishListener: PublishListener? = null,
+    ): Boolean {
+        if (!gravixVideoPublishMayGoOn(track, publishListener)) return false
+        return gravixPublishVideoTrackNow(track, options, publishListener)
+    }
+
+    /**
+     * GRAVIX (2026-11-04): a screen share or camera moves first from a region known not to carry video. False: it doesn't
+     * go on; a refused gate is reported, and a source the app turned off meanwhile (2026-11-05) simply stays off.
+     */
+    private suspend fun gravixVideoPublishMayGoOn(track: LocalVideoTrack, publishListener: PublishListener?): Boolean {
+        val source = if (track.options.isScreencast) Track.Source.SCREEN_SHARE else Track.Source.CAMERA
+        if (gravixVideoPublishGate?.invoke(track.options.isScreencast) == false) {
+            if (source in gravixOffAsked) return false
+            val e = TrackException.PublishException(GravixRegionMedia.MEDIA_NOT_ALLOWED)
+            publishListener?.onPublishFailure(e)
+            eventBus.postEvent(ParticipantEvent.LocalTrackPublicationFailed(this, track, e), scope)
+            return false
+        }
+        if (source in gravixOffAsked) {
+            GravixRegionLog.step("mediaFailover", "media=video stay reason=turned-off-during-move")
+            return false
+        }
+        return true
+    }
+
+    /** [publishVideoTrack] without the region check: the reconnect's own republish runs here. */
+    private suspend fun gravixPublishVideoTrackNow(
+        track: LocalVideoTrack,
+        options: VideoTrackPublishOptions,
+        publishListener: PublishListener?,
+        followReconnect: Boolean = true,
     ): Boolean {
         @Suppress("NAME_SHADOWING") var options = options
 
@@ -612,41 +828,107 @@ internal constructor(
 
         var publication: LocalTrackPublication? = null
         try {
-            publication = publishTrackImpl(
-                track = track,
-                options = options,
-                requestConfig = {
-                    width = track.dimensions.width
-                    height = track.dimensions.height
-                    source = resolveVideoTrackSource(track, options).toProto()
-                    addAllLayers(videoLayers)
+            val publishOptions = options
+            publication = gravixPublishFollowingReconnect(track, resolveVideoTrackSource(track, publishOptions), publishListener, followReconnect) {
+                publishTrackImpl(
+                    track = track,
+                    options = publishOptions,
+                    requestConfig = {
+                        width = track.dimensions.width
+                        height = track.dimensions.height
+                        source = resolveVideoTrackSource(track, publishOptions).toProto()
+                        addAllLayers(videoLayers)
 
-                    addSimulcastCodecs(
-                        with(SimulcastCodec.newBuilder()) {
-                            codec = options.videoCodec
-                            cid = rtcTrackId
-                            build()
-                        },
-                    )
-                    // set up backup codec
-                    if (options.backupCodec?.codec != null && options.videoCodec != options.backupCodec?.codec) {
                         addSimulcastCodecs(
                             with(SimulcastCodec.newBuilder()) {
-                                codec = options.backupCodec!!.codec
-                                cid = ""
+                                codec = publishOptions.videoCodec
+                                cid = rtcTrackId
                                 build()
                             },
                         )
-                    }
-                },
-                encodings = encodings,
-                publishListener = publishListener,
-            )
+                        // set up backup codec
+                        val backupCodec = publishOptions.backupCodec?.codec
+                        if (backupCodec != null && publishOptions.videoCodec != backupCodec) {
+                            addSimulcastCodecs(
+                                with(SimulcastCodec.newBuilder()) {
+                                    codec = backupCodec
+                                    cid = ""
+                                    build()
+                                },
+                            )
+                        }
+                    },
+                    encodings = encodings,
+                    publishListener = publishListener,
+                )
+            }
         } catch (e: TrackException.PublishException) {
             GxLog.e(e) { "Error thrown when publishing track:" }
         }
 
         return publication != null
+    }
+
+    /**
+     * GRAVIX (2026-11-05, Flutter 0.8.2): runs [publish]; when a full reconnect ends it, waits for the new session and
+     * runs it again, with the same track. The app never sees the interruption: the call answers with how it ended.
+     * Field, Gulf test 2026-11-04: the app said the mic was on, the SDK had no publication, and nobody heard the user.
+     */
+    @Suppress("SwallowedException") // the exception is the signal to follow the reconnect; a final failure reports it
+    private suspend fun gravixPublishFollowingReconnect(
+        track: Track,
+        source: Track.Source,
+        publishListener: PublishListener?,
+        followReconnect: Boolean,
+        publish: suspend () -> LocalTrackPublication?,
+    ): LocalTrackPublication? {
+        var tries = 0
+        while (true) {
+            val replaced = try {
+                return publish().also { gravixPublishEnded(it, source, tries) }
+            } catch (e: GravixSessionReplacedException) {
+                e
+            }
+            if (!followReconnect || !gravixPublishAgainAfterReplaced(source, tries)) {
+                gravixReportInterruptedPublish(track, source, publishListener, replaced)
+                return null
+            }
+            tries++
+        }
+    }
+
+    private fun gravixPublishEnded(publication: LocalTrackPublication?, source: Track.Source, tries: Int) {
+        if (publication != null && source in gravixOffAsked && engine.gravixRecovery.publishFollowsReconnect) {
+            gravixApplyOffAfterLanding(publication, source)
+        }
+        if (tries > 0) {
+            val outcome = if (publication != null) "ok" else "fail reason=no-publication"
+            GravixRegionLog.step("mediaRepublish", "${source.name.lowercase()} $outcome")
+        }
+    }
+
+    /**
+     * GRAVIX (2026-11-05): the app turned [source] off while this publish was out: its call found no publication to mute,
+     * and said done. The publication must not stay live.
+     */
+    private fun gravixApplyOffAfterLanding(publication: LocalTrackPublication, source: Track.Source) {
+        GravixRegionLog.step("mediaRepublish", "${source.name.lowercase()} muted reason=turned-off-while-publishing")
+        val track = publication.track
+        if (source == Track.Source.SCREEN_SHARE && track != null) {
+            unpublishTrack(track)
+            return
+        }
+        publication.muted = true
+        gravixOffAsked.add(source)
+        if (source == Track.Source.CAMERA) (track as? LocalVideoTrack)?.stopCapture()
+    }
+
+    /** A publish that won't go out after all. Not a failure when the app turned the source off meanwhile. */
+    private fun gravixReportInterruptedPublish(track: Track, source: Track.Source, publishListener: PublishListener?, cause: Exception) {
+        if (source in gravixOffAsked || engine.gravixPostReconnectInterrupted) return
+        val failure = TrackException.PublishException("Failed to publish track", cause)
+        publishListener?.onPublishFailure(failure)
+        eventBus.postEvent(ParticipantEvent.LocalTrackPublicationFailed(this, track, failure), scope)
     }
 
     private fun hasPermissionsToPublish(source: Track.Source): Boolean {
@@ -717,6 +999,10 @@ internal constructor(
             onPublishFailure(TrackException.PublishException("Not connected!"))
             return null
         }
+
+        // GRAVIX (2026-11-05): no session to publish on; the caller follows the reconnect
+        if (engine.gravixNoSessionNow) throw GravixSessionReplacedException("publish: no session, a full reconnect is under way")
+        val gravixSessionAtStart = engine.gravixSessionGen
 
         if (track is LocalVideoTrack) {
             track.clearSimulcastCodecs()
@@ -812,6 +1098,8 @@ internal constructor(
                     stream = options.stream,
                     builder = addTrackRequestBuilder,
                 )
+            } catch (e: GravixSessionReplacedException) {
+                throw e // not a failure of this track: the caller follows the reconnect
             } catch (e: Exception) {
                 onPublishFailure(TrackException.PublishException("Failed to publish track", e))
                 e.rethrowIfCancellationSignal()
@@ -860,6 +1148,12 @@ internal constructor(
                 }
             }
 
+            // GRAVIX (2026-11-05): answered by the old session as it went. A publication now would have no sender, and the
+            // reconnect's republish has already taken its list.
+            if (engine.gravixRecovery.publishFollowsReconnect && engine.gravixSessionGen != gravixSessionAtStart) {
+                throw GravixSessionReplacedException("publish: the session was replaced")
+            }
+
             if (trackInfo != null) {
                 publication = LocalTrackPublication(
                     info = trackInfo,
@@ -874,6 +1168,15 @@ internal constructor(
                 internalListener?.onTrackPublished(publication, this)
                 eventBus.postEvent(ParticipantEvent.LocalTrackPublished(this, publication), scope)
             }
+        } catch (e: GravixSessionReplacedException) {
+            throw e
+        } catch (e: Exception) {
+            e.rethrowIfCancellationSignal()
+            // GRAVIX (2026-11-05): the negotiation lost its connection to the same reconnect
+            if (engine.gravixRecovery.publishFollowsReconnect && engine.gravixSessionGen != gravixSessionAtStart) {
+                throw GravixSessionReplacedException("publish: the session was replaced", e)
+            }
+            throw e
         } finally {
             if (publication == null) {
                 // Negotiation can win the race against a failed or cancelled add track request.
@@ -1342,37 +1645,45 @@ internal constructor(
                 )
             }
             val negotiateJob = launch {
-                transceiver.sortVideoCodecPreferences(newOptions.videoCodec, capabilitiesGetter)
-                simulcastTrack.sender = transceiver.sender
+                // GRAVIX (2026-11-05): caught for the same reason as the AddTrack below
+                try {
+                    transceiver.sortVideoCodecPreferences(newOptions.videoCodec, capabilitiesGetter)
+                    simulcastTrack.sender = transceiver.sender
 
-                // The backup codec has its own sender, so it needs the same degradation
-                // preference as the primary applied explicitly. Resolve the source the same
-                // way the primary publish did, rather than reading it back off the
-                // publication, so the two encoders can't disagree.
-                transceiver.applyDegradationPreference(
-                    newOptions.degradationPreference,
-                    resolveVideoTrackSource(track, newOptions),
-                )
+                    // The backup codec has its own sender, so it needs the same degradation
+                    // preference as the primary applied explicitly. Resolve the source the same
+                    // way the primary publish did, rather than reading it back off the
+                    // publication, so the two encoders can't disagree.
+                    transceiver.applyDegradationPreference(
+                        newOptions.degradationPreference,
+                        resolveVideoTrackSource(track, newOptions),
+                    )
 
-                engine.negotiatePublisher()
+                    engine.negotiatePublisher()
+                } catch (e: Exception) {
+                    e.rethrowIfCancellationSignal()
+                    GxLog.w(e) { "exception when negotiating $codec for track ${track.sid}" }
+                }
             }
-            val publishJob = async {
-                engine.addTrack(
-                    cid = simulcastTrack.rtcTrack.id(),
-                    name = existingPublication.name,
-                    kind = existingPublication.kind.toProto(),
-                    stream = options.stream,
-                    builder = trackRequest,
-                )
+            // GRAVIX (2026-11-05): caught inside: a failing async fails this launch whatever catches its await(), and this
+            // scope has no handler, so a deadline or a closing socket here was an uncaught exception, a crash on a phone
+            val publishJob = launch {
+                try {
+                    val trackInfo = engine.addTrack(
+                        cid = simulcastTrack.rtcTrack.id(),
+                        name = existingPublication.name,
+                        kind = existingPublication.kind.toProto(),
+                        stream = options.stream,
+                        builder = trackRequest,
+                    )
+                    GxLog.d { "published $codec for track ${track.sid}, $trackInfo" }
+                } catch (e: Exception) {
+                    e.rethrowIfCancellationSignal()
+                    GxLog.w(e) { "exception when publishing $codec for track ${track.sid}" }
+                }
             }
             negotiateJob.join()
-            try {
-                val trackInfo = publishJob.await()
-                GxLog.d { "published $codec for track ${track.sid}, $trackInfo" }
-            } catch (e: Exception) {
-                e.rethrowIfCancellationSignal()
-                GxLog.w(e) { "exception when publishing $codec for track ${track.sid}" }
-            }
+            publishJob.join()
         }
     }
 
@@ -1390,10 +1701,10 @@ internal constructor(
     internal fun prepareForFullReconnect() {
         val pubs = localTrackPublications.toList() // creates a copy, so is safe from the following removal.
 
-        // Only set the first time we start a full reconnect.
-        if (republishes == null) {
-            republishes = pubs
-        }
+        // GRAVIX (2026-11-05): what landed on a session that a later attempt replaced is held too; upstream kept only the
+        // first attempt's list, which lost such a publication with the app still believing it was on
+        val held = republishes.orEmpty()
+        republishes = held + pubs.filter { pub -> held.none { it.track === pub.track } }
 
         trackPublications = trackPublications.toMutableMap().apply { clear() }
 
@@ -1404,23 +1715,86 @@ internal constructor(
     }
 
     internal suspend fun republishTracks() {
-        val publish = republishes?.toList() ?: emptyList()
-        republishes = null
+        // GRAVIX (2026-11-05, Flutter `_gravixRepublishPending`): a publication stays held until its republish has ended, so
+        // that an interruption here loses nothing: the next full reconnect takes over what is left.
+        for (pub in republishes.orEmpty().toList()) {
+            // the signal went between two tracks: this one wouldn't be answered, the next reconnect takes it
+            if (engine.gravixPostReconnectInterrupted || !gravixRepublishOne(pub)) return
+            republishes = republishes?.filter { it !== pub }?.takeIf { it.isNotEmpty() }
+        }
+    }
 
-        for (pub in publish) {
-            val track = pub.track ?: continue
-            unpublishTrack(track, false)
-            // Cannot publish muted tracks.
-            if (!pub.muted) {
-                val success = when (track) {
-                    is LocalAudioTrack -> publishAudioTrack(track, pub.options as AudioTrackPublishOptions, null)
-                    is LocalVideoTrack -> publishVideoTrack(track, pub.options as VideoTrackPublishOptions, null)
-                    else -> throw IllegalStateException("LocalParticipant has a non local track publish?")
-                }
-                if (!success) {
-                    track.stop()
-                }
+    /** False: the session went during this republish; [pub] and what follows stay held. */
+    private suspend fun gravixRepublishOne(pub: LocalTrackPublication): Boolean {
+        val track = pub.track ?: return true
+        val name = pub.source.name.lowercase()
+        if (gravixRepublishNotNeeded(pub, track)) return true
+        unpublishTrack(track, false)
+        // Cannot publish muted tracks. GRAVIX: a muted source is not on the new session at all, so it cannot be live there;
+        // its next enable publishes it again with the track enabled.
+        if (pub.muted) {
+            GravixRegionLog.step("mediaRepublish", "$name skip reason=muted")
+            return true
+        }
+        val success = when (track) {
+            is LocalAudioTrack -> gravixPublishAudioNow(track, pub.options as AudioTrackPublishOptions, null, followReconnect = false)
+            is LocalVideoTrack -> gravixPublishVideoTrackNow(track, pub.options as VideoTrackPublishOptions, null, followReconnect = false)
+            else -> throw IllegalStateException("LocalParticipant has a non local track publish?")
+        }
+        if (success) return true
+        if (engine.gravixPostReconnectInterrupted) {
+            GravixRegionLog.step("mediaRepublish", "$name held reason=interrupted")
+            return false
+        }
+        track.stop()
+        return true
+    }
+
+    /** GRAVIX (2026-11-05): the app unmuted a publication itself: the source is on again, for the next reconnect too. */
+    internal fun gravixNoteUnmuted(source: Track.Source) {
+        gravixOffAsked.remove(source)
+    }
+
+    /** GRAVIX (2026-11-05): muted directly or by the server: a media move must not turn the camera live against that. */
+    internal fun gravixNoteMuted(source: Track.Source) {
+        if (source == Track.Source.CAMERA) gravixCameraWanted = false
+    }
+
+    /**
+     * GRAVIX (2026-11-05): true when a full reconnect's republish leaves [pub] alone.
+     * - Flutter 0.8.3: a publish landed on this session before this republish. The same cid again gets no answer from the
+     *   SFU: the reconnect would sit out the 20 s deadline, drop the publication and stop the track, with the app still
+     *   believing it is on. The mute it carries is already on this session.
+     * - Turned off during the reconnect: the tap wins, and its capture closes.
+     */
+    private fun gravixRepublishNotNeeded(pub: LocalTrackPublication, track: Track): Boolean {
+        val name = pub.source.name.lowercase()
+        if (engine.gravixRecovery.republishKeepsNewSessionTracks && isTrackPublished(track)) {
+            GravixRegionLog.step("mediaRepublish", "$name skip reason=on-new-session")
+            return true
+        }
+        if (engine.gravixRecovery.publishFollowsReconnect && pub.source in gravixOffAsked) {
+            GravixRegionLog.step("mediaRepublish", "$name skip reason=not-wanted")
+            if (!pub.muted) gravixCloseTurnedOff(track) // a muted one closed at its mute
+            return true
+        }
+        return false
+    }
+
+    private fun gravixCloseTurnedOff(track: Track) {
+        when (track) {
+            is LocalAudioTrack -> {
+                track.stop()
+                track.stopPrewarm()
             }
+
+            is LocalVideoTrack -> {
+                track.stopCapture()
+                track.stop()
+                if (track.options.isScreencast) track.dispose()
+            }
+
+            else -> track.stop()
         }
     }
 
@@ -1451,6 +1825,11 @@ internal constructor(
      * @suppress
      */
     fun cleanup() {
+        // GRAVIX (2026-11-05, privacy): what the app wanted in this session is not wanted in its next one
+        gravixSessionsLeft++
+        gravixCameraWanted = false
+        gravixOffAsked.clear()
+        gravixRefusalOutcome = null
         for (pub in trackPublications.values) {
             val track = pub.track
 

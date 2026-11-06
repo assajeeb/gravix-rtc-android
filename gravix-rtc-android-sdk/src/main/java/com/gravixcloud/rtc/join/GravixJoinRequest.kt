@@ -33,10 +33,10 @@ class GravixJoinRequest @JvmOverloads constructor(
     /** Whether the token grants publishing (a viewer: false). */
     val canPublish: Boolean,
     /**
-     * GRAVIX (2026-10-21, per-region media): what the room uses. [GravixRoomMedia.AUDIO] for a voice room nobody
-     * publishes or watches video in, so the join may use an audio-only region (e.g. doh1); null /
-     * [GravixRoomMedia.VIDEO] (the default, the safe one) keeps the join on regions that allow video. Chooses the
-     * region only: not part of the session key, [equals] or the token cache (the token does not depend on it). A token
+     * GRAVIX (2026-11-04, per-region media): what the room uses; optional. Null: auto-detect, the join goes to the
+     * fastest region and the session moves once if the room carries video ([GravixRegionMedia.autoDetect]).
+     * [GravixRoomMedia.VIDEO] keeps the join on regions that allow video; [GravixRoomMedia.AUDIO] is a voice room.
+     * Neither turns off the move. Chooses the region only: not part of the session key, [equals] or the token cache (the token does not depend on it). A token
      * whose video grant may publish the camera / a screen share makes the join video whatever this says; a mic-only
      * grant does not make it audio. See [GravixRegionMedia].
      */

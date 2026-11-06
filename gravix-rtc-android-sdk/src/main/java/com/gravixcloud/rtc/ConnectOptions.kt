@@ -65,11 +65,12 @@ data class ConnectOptions(
     val clientProtocol: ClientProtocolVersion = ClientProtocolVersion.DATA_STREAM_RPC,
 
     /**
-     * GRAVIX (2026-10-21, per-region media): what the room uses. [GravixRoomMedia.AUDIO] for a voice room nobody
-     * publishes or watches video in (it may then be on an audio-only region, e.g. doh1); null / [GravixRoomMedia.VIDEO]
-     * (the default, the safe one) = video. Promoted to video by [video] or a token that may publish the camera / a
-     * screen share; never demoted. A region failover tries the regions that allow it first (the others stay as the
-     * last resort). See [com.gravixcloud.rtc.regions.GravixRegionMedia].
+     * GRAVIX (2026-11-04, per-region media): what the room uses; optional. Null: auto-detect, the session may land on
+     * an audio-only region (e.g. doh1) and moves once if the room carries video
+     * ([com.gravixcloud.rtc.regions.GravixRegionMedia.autoDetect]). [GravixRoomMedia.VIDEO] or [GravixRoomMedia.AUDIO]
+     * decides the join's region choice; it does not turn off that move. Promoted to video by [video] or a token that may publish the camera / a screen share; never
+     * demoted. A region failover tries the regions that allow it first (the others stay as the last resort). See
+     * [com.gravixcloud.rtc.regions.GravixRegionMedia].
      */
     val media: GravixRoomMedia? = null,
 ) {
