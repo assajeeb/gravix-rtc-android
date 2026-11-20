@@ -27,6 +27,26 @@
 -keepclassmembers class org.webrtc.audio.WebRtcAudioRecord {
     private final org.webrtc.audio.JavaAudioDeviceModule$AudioRecordErrorCallback errorCallback;
     private java.util.concurrent.atomic.AtomicBoolean nativeCalledStartRecording;
+    # GxSingerCapture (singer mode: capture source restart, built-in effects)
+    private final int audioSource;
+    private int channelCount;
+    private int sampleRate;
+    private final org.webrtc.audio.WebRtcAudioEffects effects;
+    private final java.lang.Object audioRecordStateLock;
+    private volatile android.media.AudioRecord audioRecord;
+    private org.webrtc.audio.WebRtcAudioRecord$AudioRecordThread audioThread;
+    private java.util.concurrent.atomic.AtomicBoolean clientCalledStartRecording;
+    private int initRecordingImpl(int, int, boolean);
+    private boolean startRecordingImpl();
+    private boolean stopRecordingIfNeededImpl();
+}
+-keepclassmembers class org.webrtc.audio.WebRtcAudioEffects {
+    private boolean shouldEnableAec;
+    private boolean shouldEnableNs;
+    public boolean setAEC(boolean);
+    public boolean setNS(boolean);
+    public boolean shouldEnableAEC();
+    public boolean shouldEnableNS();
 }
 
 # Ensure JNI native method names and descriptors are preserved (Java -> native).
@@ -76,4 +96,5 @@
 # GRAVIX noise suppression (2026-10-21): JNI entry points are looked up by class and method name
 #########################################
 -keep class com.gravixcloud.rtc.noise.GxNsNative { native <methods>; }
+-keep class com.gravixcloud.rtc.noise.GxVoiceFx { native <methods>; }
 -keep class com.gravixcloud.rtc.noise.GxNsStudio { native <methods>; }

@@ -34,6 +34,8 @@ import com.gravixcloud.rtc.room.track.LocalVideoTrack
 import com.gravixcloud.rtc.room.track.RemoteTrackPublication
 import com.gravixcloud.rtc.room.track.Track
 import com.gravixcloud.rtc.room.track.VideoTrack
+import com.gravixcloud.rtc.singer.GravixSingerModeState
+import com.gravixcloud.rtc.singer.GravixSingerOptions
 import com.gravixcloud.rtc.util.GxLog
 import com.gravixcloud.rtc.util.flow
 import com.gravixcloud.rtc.util.launchFuture
@@ -215,6 +217,21 @@ class GravixRoomService internal constructor(
 
     /** Agora name for `setMicrophoneEnabled(!mute)`. */
     fun muteLocalAudio(mute: Boolean): CompletableFuture<Boolean> = setMicrophoneEnabled(!mute)
+
+    /**
+     * Singer / music mode for the published microphone ([Room.setSingerMode]): our NS/AGC/expander off, WebRTC and
+     * platform NS/AGC/high-pass off, echo cancellation off unless [GravixSingerOptions.echoCancellation], MIC capture,
+     * DTX off and 96 kbps by default. Runtime; echo risk on the loudspeaker. Completes with what applied.
+     */
+    @JvmOverloads
+    fun setSingerMode(on: Boolean, options: GravixSingerOptions = GravixSingerOptions()): CompletableFuture<GravixSingerModeState> =
+        launchFuture(scope, callbackExecutor) { room.setSingerMode(on, options) }
+
+    /** Singer mode is on ([setSingerMode]). */
+    val singerMode: Boolean get() = room.singerMode
+
+    /** Singer mode's options while it is on. */
+    val singerOptions: GravixSingerOptions? get() = room.singerOptions
 
     /**
      * Publishes (or unmutes) the camera, or mutes it. Needs the CAMERA permission. Completes with true when the camera

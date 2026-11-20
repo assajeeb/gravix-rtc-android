@@ -2,6 +2,21 @@
 
 Upstream (LiveKit Android SDK) history up to the fork point: `doc/upstream/CHANGELOG.md`.
 
+## 0.5.0 (2026-11-20)
+
+### Added
+- Voice effects: `GravixVoiceEffects.set(GravixVoiceEffect.X)`, the 35 effects of the Flutter SDK 0.10.0. Effects that change pitch add about 40 ms, the others none. New `libgxfx.so`, loaded only when an effect is first used.
+- Singer mode (Flutter SDK, 2026-11-20): `Room.setSingerMode(on, GravixSingerOptions(...))` and
+  `GravixRoomService.setSingerMode`, an opt-in runtime mode for singers and sound cards: our NS, AGC and pause expander
+  off (limiter near clip only), WebRTC NS/AGC/high-pass off and AEC off unless `echoCancellation = true`, the phone's
+  built-in AEC/NS effects off, capture from MIC (or VOICE_RECOGNITION / UNPROCESSED) instead of VOICE_COMMUNICATION,
+  96 kbps, DTX off. No audio device module rebuild; only the DTX change republishes the microphone. Echo risk on the
+  loudspeaker with AEC off. A custom audio device module keeps its capture source and effects.
+
+### Fixed
+- The pause expander (DTX) no longer cuts a held sung note by 15 dB (gxns synced from the Flutter SDK; new
+  test_sustain).
+
 ## 0.4.0 (2026-11-05)
 
 Audio-only regions, ported from the Flutter SDK 0.8.0 to 0.8.3. The default join changes: nothing declared now lands on

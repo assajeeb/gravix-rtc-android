@@ -101,6 +101,10 @@ internal object GxNoiseProcessor : AuthedAudioProcessorInterface {
 
     @Volatile private var musicSinceMs = 0L
 
+    // singer mode (Room.setSingerMode, 2026-11-20): our chain stays bypassed (dry + limiter near clip, our AGC and pause
+    // expander at unity) while it is on, with or without room music
+    @Volatile private var singerMode = false
+
     @Volatile private var decided = GxNsNative.ENGINE_OFF
 
     @Volatile private var decidedReason = "mode_off"
@@ -190,7 +194,7 @@ internal object GxNoiseProcessor : AuthedAudioProcessorInterface {
 
     // ============================== audio thread ==============================
 
-    override fun isEnabled(): Boolean = handle != 0L
+    override fun isEnabled(): Boolean = handle != 0L || GxVoiceFx.wanted()
 
     /** The chained app processor's name when there is one (the SDK's Krisp feature check reads it). */
     override fun getName(): String = chained?.getName() ?: NAME
@@ -210,6 +214,7 @@ internal object GxNoiseProcessor : AuthedAudioProcessorInterface {
 
     override fun processAudio(numBands: Int, numFrames: Int, buffer: ByteBuffer) {
         process(numBands, numFrames, buffer)
+        GxVoiceFx.process(buffer, numFrames, initChannels) // after noise suppression, always
         chained?.processAudio(numBands, numFrames, buffer)
     }
 
@@ -303,7 +308,7 @@ internal object GxNoiseProcessor : AuthedAudioProcessorInterface {
         val h = handle
         GxNsNative.nativeSetAgc(h, agcOn, agcOrder)
         GxNsNative.nativeSetStudioLimits(h, (studioAttenLimitDb * 100).toInt(), studioP95BudgetUs)
-        GxNsNative.nativeSetBypass(h, musicBypassEnabled && musicActive)
+        GxNsNative.nativeSetBypass(h, bypassWanted())
         applyDecision("configure")
         val installed = installOn(apc, "configure")
         if ((mode == "auto" || mode == "studio") && studioLowLatency) ensurePack()
@@ -331,7 +336,7 @@ internal object GxNoiseProcessor : AuthedAudioProcessorInterface {
      */
     @Synchronized
     fun installOn(apc: AudioProcessingController?, where: String): Boolean {
-        if (handle == 0L) return false
+        if (handle == 0L && !GxVoiceFx.wanted()) return false
         val c = apc ?: return controller != null
         if (controller === c && c.capturePostProcessor === this) return true
         try {
@@ -380,14 +385,28 @@ internal object GxNoiseProcessor : AuthedAudioProcessorInterface {
         emit("routeReset", mapOf("from" to prev))
     }
 
+    private fun bypassWanted(): Boolean = (musicBypassEnabled && musicActive) || singerMode
+
+    /** Singer mode on / off (Room.setSingerMode, any thread). */
+    fun setSingerMode(on: Boolean) {
+        if (singerMode == on) return
+        singerMode = on
+        val h = handle
+        if (h == 0L) return
+        GxNsNative.nativeSetBypass(h, bypassWanted())
+        log("singerMode", decided, "on=$on bypass=${bypassWanted()}")
+        emit("singerMode", mapOf("singerMode" to on))
+    }
+
     /** Room music start / end ([GravixNoiseSuppression.setMusicActive], any thread). */
     fun onMusic(active: Boolean) {
+        GxVoiceFx.onMusic(active)
         if (musicActive == active) return
         musicActive = active
         val now = SystemClock.elapsedRealtime()
         val h = handle
         val bypass = musicBypassEnabled && active
-        if (h != 0L && musicBypassEnabled) GxNsNative.nativeSetBypass(h, active)
+        if (h != 0L && (musicBypassEnabled || singerMode)) GxNsNative.nativeSetBypass(h, bypassWanted())
         if (h == 0L) return
         val detail = if (active) {
             musicSinceMs = now

@@ -264,10 +264,22 @@ object GravixNoiseSuppression {
     /** A microphone was created from [base] (before [adjustCapture]): remembered weakly; the processor goes on its controller. */
     internal fun trackCreated(track: LocalAudioTrack, base: LocalAudioTrackOptions, controller: AudioProcessingController?) {
         synchronized(tracks) { tracks[track] = base }
-        if (controller != null && opts != null) {
+        if (controller != null) GxVoiceFx.controller = controller
+        if (controller != null && (opts != null || GxVoiceFx.wanted())) {
             apc = controller
             GxNoiseProcessor.installOn(controller, "microphone")
         }
+    }
+
+    /**
+     * Rooms whose singer mode holds the microphone's WebRTC processing (Room.setSingerMode): a runtime NS change then
+     * leaves the live tracks alone.
+     */
+    @Volatile
+    internal var processingHeld = 0
+
+    internal fun holdProcessing(hold: Boolean) = synchronized(this) {
+        processingHeld = (processingHeld + if (hold) 1 else -1).coerceAtLeast(0)
     }
 
     /** The room's selected audio device changed (audioswitch, main thread). */
@@ -459,6 +471,10 @@ object GravixNoiseSuppression {
      * covers a microphone created before the first configure (pre-join).
      */
     private fun reapplyTracks() {
+        if (processingHeld > 0) {
+            Log.i(TAG, "[GravixNS] singer mode holds the microphone processing: not re-applied")
+            return
+        }
         val o = opts ?: GravixNoiseSuppressionOptions.LEGACY
         val list = synchronized(tracks) { tracks.entries.map { it.key to it.value } }
         for ((t, base) in list) {

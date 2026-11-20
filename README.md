@@ -8,7 +8,7 @@ region failover and session recovery built in.
 - Packages: `com.gravixcloud.rtc` (Kotlin `Room` API), `com.gravixcloud.rtc.service` (`GravixRoomService`, the
   Java-first API)
 - minSdk 24, signalling protocol v13
-- Status: **0.4.0**, on Maven Central (see `CHANGELOG.md`)
+- Status: **0.5.0**, on Maven Central (see `CHANGELOG.md`)
 
 The engine is a white-labelled fork of the Apache-2.0 LiveKit Android SDK (v2.28.2); see `NOTICE` and
 `tools/rebrand/README.md`.
@@ -28,7 +28,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.gravixcloud:gravix-rtc-android:0.4.0")
+    implementation("com.gravixcloud:gravix-rtc-android:0.5.0")
 }
 ```
 

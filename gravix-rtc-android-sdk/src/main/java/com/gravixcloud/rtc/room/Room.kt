@@ -20,9 +20,11 @@
 package com.gravixcloud.rtc.room
 
 import android.content.Context
+import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.ConnectivityManager.NetworkCallback
 import android.net.Network
+import android.os.Build
 import android.os.SystemClock
 import androidx.annotation.VisibleForTesting
 import com.gravixcloud.rtc.ConnectOptions
@@ -37,6 +39,8 @@ import com.gravixcloud.rtc.audio.AudioRecordPrewarmer
 import com.gravixcloud.rtc.audio.AudioSwitchHandler
 import com.gravixcloud.rtc.audio.AuthedAudioProcessingController
 import com.gravixcloud.rtc.audio.CommunicationWorkaround
+import com.gravixcloud.rtc.audio.GxSingerCapture
+import com.gravixcloud.rtc.audio.GxSingerSource
 import com.gravixcloud.rtc.audio.startPreconnectAudioJob
 import com.gravixcloud.rtc.audioswitch.AudioDeviceChangeListener
 import com.gravixcloud.rtc.dagger.InjectionNames
@@ -52,6 +56,7 @@ import com.gravixcloud.rtc.join.gravixSessionKeyOf
 import com.gravixcloud.rtc.memory.CloseableManager
 import com.gravixcloud.rtc.noise.GravixNoiseSuppression
 import com.gravixcloud.rtc.noise.GravixNoiseSuppressionOptions
+import com.gravixcloud.rtc.noise.GxNoiseProcessor
 import com.gravixcloud.rtc.regions.GravixRegionFailoverOrder
 import com.gravixcloud.rtc.regions.GravixRegionLog
 import com.gravixcloud.rtc.regions.GravixRegionMeasurements
@@ -88,6 +93,12 @@ import com.gravixcloud.rtc.room.types.toSDKType
 import com.gravixcloud.rtc.room.util.ConnectionWarmer
 import com.gravixcloud.rtc.service.GravixForegroundService
 import com.gravixcloud.rtc.service.GravixForegroundServiceOptions
+import com.gravixcloud.rtc.singer.GravixSingerCaptureSource
+import com.gravixcloud.rtc.singer.GravixSingerModeController
+import com.gravixcloud.rtc.singer.GravixSingerModeState
+import com.gravixcloud.rtc.singer.GravixSingerOptions
+import com.gravixcloud.rtc.singer.GravixSingerProfile
+import com.gravixcloud.rtc.singer.GravixSingerTrackMic
 import com.gravixcloud.rtc.util.FlowObservable
 import com.gravixcloud.rtc.util.GravixStepLogs
 import com.gravixcloud.rtc.util.GxLog
@@ -1321,6 +1332,8 @@ constructor(
     fun release() {
         GravixForegroundService.release(this)
         disconnect()
+        singerReleaseNative()
+        singerCapture.release()
         closeableManager.close()
     }
 
@@ -1475,6 +1488,10 @@ constructor(
             localParticipant.events.collect {
                 when (it) {
                     is ParticipantEvent.TrackPublished -> {
+                        // GRAVIX (singer mode): a new microphone publication (first publish, reconnect) gets its profile
+                        if (singer.active && it.publication.source == Track.Source.MICROPHONE) {
+                            coroutineScope.launch { singer.onMicPublished() }
+                        }
                         // GRAVIX: microphone / camera publish -> the call service's types
                         GravixForegroundService.roomPublished(
                             this@Room,
@@ -1921,6 +1938,107 @@ constructor(
      */
     fun setMicrophoneMute(muted: Boolean) {
         audioDeviceModule.setMicrophoneMute(muted)
+    }
+
+    // ------------------------------------- Singer mode (2026-11-20) -------------------------------------//
+
+    private val singerCapture = GxSingerCapture { audioDeviceModule }
+
+    // the app's publish defaults while singer mode replaces them (null: not replaced)
+    @Volatile
+    private var singerSavedPublishDefaults: AudioTrackPublishDefaults? = null
+
+    private val singer = GravixSingerModeController(
+        mic = { GravixSingerTrackMic.of(localParticipant) },
+        native = { on, source -> singerNative(on, source) },
+        defaults = {
+            val publish = singerSavedPublishDefaults ?: localParticipant.audioTrackPublishDefaults
+            GravixSingerProfile(
+                processing = GravixNoiseSuppression.adjustCapture(localParticipant.audioTrackCaptureDefaults),
+                dtx = publish.dtx,
+                bitrate = publish.audioBitrate,
+            )
+        },
+        publishProfile = { o -> singerPublishProfile(o) },
+    )
+
+    /**
+     * Singer / music mode for the published microphone: an explicit opt-in for singers and live-stream sound cards
+     * (V8-type cards, a mixer). Runtime, mid-room, on or off at any time; stays on across connects of this room until
+     * switched off.
+     *
+     * On: our noise suppression, AGC and pause expander off (only the limiter near clip), WebRTC's NS/AGC/high-pass off
+     * and echo cancellation off unless [GravixSingerOptions.echoCancellation], the phone's built-in AEC/NS effects off,
+     * capture from [GravixSingerOptions.captureSource] (MIC) instead of the call path, the sender at
+     * [GravixSingerOptions.maxBitrate] (96 kbps), Opus DTX off. The audio device module is not rebuilt; only the DTX
+     * change republishes the microphone (a ~100-300 ms gap, a new track for the listeners;
+     * [GravixSingerOptions.disableDtx] false skips it), and the capture source change restarts the recorder (tens to a
+     * few hundred ms). Not changed: the capture rate and the audio mode. A custom audio device module
+     * ([GravixRtcOverrides]) keeps its capture source and effects ([GravixSingerModeState.nativeApplied] false).
+     *
+     * Echo: with echo cancellation off the loudspeaker's sound reaches the microphone and the room hears itself. Meant
+     * for headphones / a sound card's monitor; on the loudspeaker pass `echoCancellation = true`. Never switched on by
+     * the SDK.
+     *
+     * Example:
+     * ```
+     * val state = room.setSingerMode(true, GravixSingerOptions(echoCancellation = false))
+     * // ...
+     * room.setSingerMode(false)
+     * ```
+     *
+     * @return what applied; failures are listed in [GravixSingerModeState.notes], never thrown.
+     */
+    suspend fun setSingerMode(on: Boolean, options: GravixSingerOptions = GravixSingerOptions()): GravixSingerModeState {
+        GxLog.i { "singer mode -> ${if (on) options.toString() else "off"}" }
+        return singer.set(on, options).also { GxLog.i { "singer mode: $it" } }
+    }
+
+    /** Singer mode is on ([setSingerMode]). */
+    val singerMode: Boolean get() = singer.active
+
+    /** Singer mode's options while it is on. */
+    val singerOptions: GravixSingerOptions? get() = singer.options
+
+    private fun singerNative(on: Boolean, source: GravixSingerCaptureSource): Boolean {
+        if (on != singerHolding) {
+            singerHolding = on
+            GravixNoiseSuppression.holdProcessing(on)
+        }
+        GxNoiseProcessor.setSingerMode(on)
+        val sdk = Build.VERSION.SDK_INT
+        val unprocessed = sdk >= Build.VERSION_CODES.N && try {
+            (context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager)
+                ?.getProperty(AudioManager.PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED) == "true"
+        } catch (e: Exception) {
+            GxLog.w(e) { "singer mode: UNPROCESSED support unknown" }
+            false
+        }
+        val keepAec = singer.options?.echoCancellation ?: true
+        return singerCapture.apply(on, if (on) GxSingerSource.resolve(source, sdk, unprocessed) else null, keepAec)
+    }
+
+    @Volatile
+    private var singerHolding = false
+
+    private fun singerPublishProfile(o: GravixSingerOptions?) {
+        if (o != null) {
+            val app = singerSavedPublishDefaults ?: localParticipant.audioTrackPublishDefaults
+            singerSavedPublishDefaults = app
+            localParticipant.audioTrackPublishDefaults = app.copy(dtx = app.dtx && !o.disableDtx, audioBitrate = o.maxBitrate)
+        } else {
+            singerSavedPublishDefaults?.let { localParticipant.audioTrackPublishDefaults = it }
+            singerSavedPublishDefaults = null
+        }
+    }
+
+    private fun singerReleaseNative() {
+        if (!singer.active) return
+        if (singerHolding) {
+            singerHolding = false
+            GravixNoiseSuppression.holdProcessing(false)
+        }
+        GxNoiseProcessor.setSingerMode(false)
     }
 
     // ------------------------------------- NetworkCallback -------------------------------------//

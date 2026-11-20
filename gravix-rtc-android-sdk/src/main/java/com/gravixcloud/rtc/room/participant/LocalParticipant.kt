@@ -1750,6 +1750,29 @@ internal constructor(
         return true
     }
 
+    /**
+     * GRAVIX (singer mode, 2026-11-20): the microphone published again, same track, with [dtx] / [maxBitrate] (DTX is
+     * fixed at publish: AddTrack and the opus answer pin). Under the microphone's publish lock; a muted one is muted
+     * again on the new publication. A failed publish puts the old options back. True: published with the new options.
+     */
+    internal suspend fun gravixRepublishMicrophone(dtx: Boolean, maxBitrate: Int?): Boolean =
+        sourcePubLocks.getValue(Track.Source.MICROPHONE).withLock {
+            val pub = getTrackPublication(Track.Source.MICROPHONE) ?: return@withLock false
+            val track = pub.track as? LocalAudioTrack ?: return@withLock false
+            val base = pub.options as? AudioTrackPublishOptions ?: return@withLock false
+            if (engine.connectionState != ConnectionState.CONNECTED) return@withLock false
+            val muted = pub.muted
+            unpublishTrack(track, stopOnUnpublish = false)
+            var ok = gravixPublishAudioNow(track, base.copy(dtx = dtx, audioBitrate = maxBitrate))
+            if (!ok) {
+                GxLog.w { "singer mode: microphone republish failed, back to dtx=${base.dtx}" }
+                gravixPublishAudioNow(track, base)
+            }
+            if (muted) getTrackPublication(Track.Source.MICROPHONE)?.muted = true
+            GxLog.i { "singer mode: microphone republished=$ok dtx=${if (ok) dtx else base.dtx} bitrate=$maxBitrate" }
+            ok
+        }
+
     /** GRAVIX (2026-11-05): the app unmuted a publication itself: the source is on again, for the next reconnect too. */
     internal fun gravixNoteUnmuted(source: Track.Source) {
         gravixOffAsked.remove(source)

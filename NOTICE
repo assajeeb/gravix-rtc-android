@@ -187,3 +187,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+Third-party components (voice effects, gravix-rtc-android-sdk/src/main/cpp/gxfx):
+- Signalsmith Stretch (MIT, gxfx/third_party/signalsmith-stretch-LICENSE.txt), https://github.com/Signalsmith-Audio/signalsmith-stretch
+- Signalsmith Linear (MIT, gxfx/third_party/signalsmith-linear/LICENSE.txt), https://github.com/Signalsmith-Audio/linear
+- The reverb follows the structure of Freeverb by Jezar at Dreampoint (public domain).

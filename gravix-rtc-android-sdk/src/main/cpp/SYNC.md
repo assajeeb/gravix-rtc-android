@@ -17,6 +17,8 @@ gx_ns.c SHA-256 `e6bfc6380ff8242ec9f78bd64306a7e9f929e3e3074afd0a2f9e3d8f860d9ee
 Resynced at `33f7346` (word onsets open the gate at once: no first-syllable dips),
 gx_ns.c SHA-256 `e0f875ac1021641f9dc19b78050e795fd2aa1fec2f34bf2ee87b5c64a52e127b`, gx_ns.h unchanged.
 
+Voice effects `gxfx/` synced from Flutter 0.10.0 (`native/gxfx` without tests), `gx_fx_jni.cpp` with the JNI prefix changed.
+
 | Here | Flutter source | Changes |
 |---|---|---|
 | `gxns/` | `native/gxns/` | none (byte-identical; `diff -r` clean) |
@@ -31,3 +33,6 @@ Resynced at `368a786` (quiet mics count as talk again: talk floor -80 dB),
 gx_ns.c SHA-256 `9b9a2c8209da71abac2f87b1496104ad6ee980fc43ecb2e3631f3517f6f1837b`, gx_ns.h unchanged.
 Resynced at `013c168` (talk judged on the louder of DFN3 and RNNoise; studio_suppress vs RNNoise),
 gx_ns.c SHA-256 `0801745c10bb56db4e467863a2657175bc3b63f1b3e50994196eaf8e36eafea9`, gx_ns.h SHA-256 `2d5503911d8ad8acc8de4d467b0444a0aeb70cccdb34a4968604c63dbf11d7d9`.
+Resynced 2026-11-20 from the uncommitted Flutter tree on `53f5048` (the pause expander no longer cuts a held
+sung note; new test_sustain), gx_ns.c SHA-256 `20b85798103273462efc72ba54efb90f2bb669048ad111b4a9444856d24eaad3`,
+gx_ns.h unchanged.

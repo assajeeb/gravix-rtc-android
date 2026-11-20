@@ -173,6 +173,30 @@ constructor(
         return Result.success(Unit)
     }
 
+    /** GRAVIX (singer mode): the sender's max bitrate (bps; null: no cap, no sender or disposed). */
+    internal fun gravixMaxBitrate(): Int? = withRTCTrack(null as Int?) {
+        try {
+            sender?.parameters?.encodings?.firstOrNull()?.maxBitrateBps
+        } catch (e: Exception) {
+            GxLog.w(e) { "singer mode: bitrate unreadable" }
+            null
+        }
+    }
+
+    /** GRAVIX (singer mode): sets the sender's max bitrate (null: no cap) without a republish. False: no sender. */
+    internal fun gravixSetMaxBitrate(bps: Int?): Boolean = withRTCTrack(false) {
+        try {
+            val s = sender ?: return@withRTCTrack false
+            val parameters = s.parameters
+            val encoding = parameters.encodings?.firstOrNull() ?: return@withRTCTrack false
+            encoding.maxBitrateBps = bps
+            s.setParameters(parameters)
+        } catch (e: Exception) {
+            GxLog.w(e) { "singer mode: bitrate not set" }
+            false
+        }
+    }
+
     /**
      * Changes can be observed by using [com.gravixcloud.rtc.util.flow]
      */

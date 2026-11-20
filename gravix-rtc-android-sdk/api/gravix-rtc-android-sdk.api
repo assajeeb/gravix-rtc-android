@@ -3687,6 +3687,8 @@ public final class com/gravixcloud/rtc/room/Room : com/gravixcloud/rtc/room/RTCE
 	public final fun getServerInfo ()Lcom/gravixcloud/rtc/room/ServerInfo;
 	public final fun getSid-Zda1GPQ ()Ljava/lang/String;
 	public final fun getSid-k2vKd0s (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getSingerMode ()Z
+	public final fun getSingerOptions ()Lcom/gravixcloud/rtc/singer/GravixSingerOptions;
 	public final fun getState ()Lcom/gravixcloud/rtc/room/Room$State;
 	public final fun getSubscriberRTCStats (Lorg/webrtc/RTCStatsCollectorCallback;)V
 	public final fun getSubscriberTransport ()Lcom/gravixcloud/rtc/room/GravixIceTransport;
@@ -3771,6 +3773,8 @@ public final class com/gravixcloud/rtc/room/Room : com/gravixcloud/rtc/room/RTCE
 	public final fun setRoomOptions (Lcom/gravixcloud/rtc/RoomOptions;)V
 	public final fun setScreenShareTrackCaptureDefaults (Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;)V
 	public final fun setScreenShareTrackPublishDefaults (Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;)V
+	public final fun setSingerMode (ZLcom/gravixcloud/rtc/singer/GravixSingerOptions;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun setSingerMode$default (Lcom/gravixcloud/rtc/room/Room;ZLcom/gravixcloud/rtc/singer/GravixSingerOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public final fun setSpeakerMute (Z)V
 	public final fun setVideoTrackCaptureDefaults (Lcom/gravixcloud/rtc/room/track/LocalVideoTrackOptions;)V
 	public final fun setVideoTrackPublishDefaults (Lcom/gravixcloud/rtc/room/participant/VideoTrackPublishDefaults;)V
@@ -6070,6 +6074,8 @@ public final class com/gravixcloud/rtc/service/GravixRoomService {
 	public final fun getRemoteUids ()Ljava/util/List;
 	public final fun getRoom ()Lcom/gravixcloud/rtc/room/Room;
 	public final fun getSelectedTransport ()Lcom/gravixcloud/rtc/room/GravixIceTransport;
+	public final fun getSingerMode ()Z
+	public final fun getSingerOptions ()Lcom/gravixcloud/rtc/singer/GravixSingerOptions;
 	public final fun getSubscriberTransport ()Lcom/gravixcloud/rtc/room/GravixIceTransport;
 	public final fun initVideoRenderer (Lcom/gravixcloud/rtc/renderer/SurfaceViewRenderer;)V
 	public final fun initVideoRenderer (Lcom/gravixcloud/rtc/renderer/TextureViewRenderer;)V
@@ -6083,6 +6089,9 @@ public final class com/gravixcloud/rtc/service/GravixRoomService {
 	public final fun removeListener (Lcom/gravixcloud/rtc/service/GravixRoomServiceListener;)V
 	public final fun setCameraEnabled (Z)Ljava/util/concurrent/CompletableFuture;
 	public final fun setMicrophoneEnabled (Z)Ljava/util/concurrent/CompletableFuture;
+	public final fun setSingerMode (Z)Ljava/util/concurrent/CompletableFuture;
+	public final fun setSingerMode (ZLcom/gravixcloud/rtc/singer/GravixSingerOptions;)Ljava/util/concurrent/CompletableFuture;
+	public static synthetic fun setSingerMode$default (Lcom/gravixcloud/rtc/service/GravixRoomService;ZLcom/gravixcloud/rtc/singer/GravixSingerOptions;ILjava/lang/Object;)Ljava/util/concurrent/CompletableFuture;
 	public final fun switchCamera ()Ljava/util/concurrent/CompletableFuture;
 }
 
@@ -6105,6 +6114,67 @@ public abstract class com/gravixcloud/rtc/service/GravixRoomServiceListener {
 	public fun onUserMuteAudio (Ljava/lang/String;Z)V
 	public fun onUserMuteVideo (Ljava/lang/String;Z)V
 	public fun onUserOffline (Ljava/lang/String;)V
+}
+
+public final class com/gravixcloud/rtc/singer/GravixSingerCaptureSource : java/lang/Enum {
+	public static final field KEEP Lcom/gravixcloud/rtc/singer/GravixSingerCaptureSource;
+	public static final field MIC Lcom/gravixcloud/rtc/singer/GravixSingerCaptureSource;
+	public static final field UNPROCESSED Lcom/gravixcloud/rtc/singer/GravixSingerCaptureSource;
+	public static final field VOICE_RECOGNITION Lcom/gravixcloud/rtc/singer/GravixSingerCaptureSource;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWireName ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Lcom/gravixcloud/rtc/singer/GravixSingerCaptureSource;
+	public static fun values ()[Lcom/gravixcloud/rtc/singer/GravixSingerCaptureSource;
+}
+
+public final class com/gravixcloud/rtc/singer/GravixSingerModeState {
+	public fun <init> (ZLcom/gravixcloud/rtc/singer/GravixSingerOptions;ZZZZZLjava/util/List;)V
+	public synthetic fun <init> (ZLcom/gravixcloud/rtc/singer/GravixSingerOptions;ZZZZZLjava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component2 ()Lcom/gravixcloud/rtc/singer/GravixSingerOptions;
+	public final fun component3 ()Z
+	public final fun component4 ()Z
+	public final fun component5 ()Z
+	public final fun component6 ()Z
+	public final fun component7 ()Z
+	public final fun component8 ()Ljava/util/List;
+	public final fun copy (ZLcom/gravixcloud/rtc/singer/GravixSingerOptions;ZZZZZLjava/util/List;)Lcom/gravixcloud/rtc/singer/GravixSingerModeState;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/singer/GravixSingerModeState;ZLcom/gravixcloud/rtc/singer/GravixSingerOptions;ZZZZZLjava/util/List;ILjava/lang/Object;)Lcom/gravixcloud/rtc/singer/GravixSingerModeState;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBitrateApplied ()Z
+	public final fun getMicPublished ()Z
+	public final fun getNativeApplied ()Z
+	public final fun getNotes ()Ljava/util/List;
+	public final fun getOn ()Z
+	public final fun getOptions ()Lcom/gravixcloud/rtc/singer/GravixSingerOptions;
+	public final fun getProcessingApplied ()Z
+	public final fun getRepublished ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/singer/GravixSingerOptions {
+	public fun <init> ()V
+	public fun <init> (Z)V
+	public fun <init> (ZLcom/gravixcloud/rtc/singer/GravixSingerCaptureSource;)V
+	public fun <init> (ZLcom/gravixcloud/rtc/singer/GravixSingerCaptureSource;Z)V
+	public fun <init> (ZLcom/gravixcloud/rtc/singer/GravixSingerCaptureSource;ZI)V
+	public synthetic fun <init> (ZLcom/gravixcloud/rtc/singer/GravixSingerCaptureSource;ZIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component2 ()Lcom/gravixcloud/rtc/singer/GravixSingerCaptureSource;
+	public final fun component3 ()Z
+	public final fun component4 ()I
+	public final fun copy (ZLcom/gravixcloud/rtc/singer/GravixSingerCaptureSource;ZI)Lcom/gravixcloud/rtc/singer/GravixSingerOptions;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/singer/GravixSingerOptions;ZLcom/gravixcloud/rtc/singer/GravixSingerCaptureSource;ZIILjava/lang/Object;)Lcom/gravixcloud/rtc/singer/GravixSingerOptions;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCaptureSource ()Lcom/gravixcloud/rtc/singer/GravixSingerCaptureSource;
+	public final fun getDisableDtx ()Z
+	public final fun getEchoCancellation ()Z
+	public final fun getMaxBitrate ()I
+	public fun hashCode ()I
+	public final fun processing (Lcom/gravixcloud/rtc/room/track/LocalAudioTrackOptions;)Lcom/gravixcloud/rtc/room/track/LocalAudioTrackOptions;
+	public static synthetic fun processing$default (Lcom/gravixcloud/rtc/singer/GravixSingerOptions;Lcom/gravixcloud/rtc/room/track/LocalAudioTrackOptions;ILjava/lang/Object;)Lcom/gravixcloud/rtc/room/track/LocalAudioTrackOptions;
+	public fun toString ()Ljava/lang/String;
 }
 
 public abstract interface class com/gravixcloud/rtc/stats/NetworkInfo {
@@ -6705,6 +6775,110 @@ public final class com/gravixcloud/rtc/util/TimeoutException : java/lang/Excepti
 public final class com/gravixcloud/rtc/util/UrlUtilsKt {
 	public static final fun toHttpUrl (Ljava/lang/String;)Ljava/lang/String;
 	public static final fun toWebsocketUrl (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/voicefx/GravixVoiceEffect : java/lang/Enum {
+	public static final field AUTOTUNE_HARMONIC_MINOR Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field AUTOTUNE_MAJOR_C Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field AUTOTUNE_MINOR_A Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field BASEMENT Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field BOY Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field CHILD Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field CLEAR Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field ENERGETIC Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field ENHANCED_KTV Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field ETHEREAL Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field FALSETTO Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field FOREIGNER Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field FRESH Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field FULL Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field GIRL Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field GRAMOPHONE Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field HALL Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field KTV Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field LARGE_ROOM Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field LOUD_CLEAR Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field MAGNETIC Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field MAN Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field MUFFLED Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field NONE Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field POPULAR Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field RESONANT Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field RICH Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field ROBOT Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field ROCK Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field ROUND Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field SOFT_ROOM Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field STUDIO Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field TRANSFORMER Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field VALLEY Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field VOCAL_CONCERT Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static final field WOMAN Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWireName ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public static fun values ()[Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+}
+
+public final class com/gravixcloud/rtc/voicefx/GravixVoiceEffectBenchmark {
+	public fun <init> (Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;IIIIII)V
+	public final fun component1 ()Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public final fun component2 ()I
+	public final fun component3 ()I
+	public final fun component4 ()I
+	public final fun component5 ()I
+	public final fun component6 ()I
+	public final fun component7 ()I
+	public final fun copy (Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;IIIIII)Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffectBenchmark;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffectBenchmark;Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;IIIIIIILjava/lang/Object;)Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffectBenchmark;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBlocks ()I
+	public final fun getEffect ()Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public final fun getLatencyMs ()I
+	public final fun getMaxUs ()I
+	public final fun getP50Us ()I
+	public final fun getP95Us ()I
+	public final fun getSampleRate ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/voicefx/GravixVoiceEffectState {
+	public fun <init> ()V
+	public fun <init> (Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;IZZIJJI)V
+	public synthetic fun <init> (Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;IZZIJJIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public final fun component2 ()Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public final fun component3 ()I
+	public final fun component4 ()Z
+	public final fun component5 ()Z
+	public final fun component6 ()I
+	public final fun component7 ()J
+	public final fun component8 ()J
+	public final fun component9 ()I
+	public final fun copy (Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;IZZIJJI)Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffectState;
+	public static synthetic fun copy$default (Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffectState;Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;IZZIJJIILjava/lang/Object;)Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffectState;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getActive ()Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public final fun getEffect ()Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;
+	public final fun getFrames ()J
+	public final fun getLatencyMs ()I
+	public final fun getMaxBlockUs ()I
+	public final fun getMusicBypass ()Z
+	public final fun getOverBudget ()J
+	public final fun getSampleRate ()I
+	public final fun getWatchdog ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/gravixcloud/rtc/voicefx/GravixVoiceEffects {
+	public static final field INSTANCE Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffects;
+	public final fun benchmark (Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun benchmark$default (Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffects;Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;ILkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun currentState ()Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffectState;
+	public final fun getState ()Lkotlinx/coroutines/flow/StateFlow;
+	public static final fun set (Lcom/gravixcloud/rtc/voicefx/GravixVoiceEffect;)Z
 }
 
 public class com/gravixcloud/rtc/webrtc/CustomVideoDecoderFactory : org/webrtc/VideoDecoderFactory {
